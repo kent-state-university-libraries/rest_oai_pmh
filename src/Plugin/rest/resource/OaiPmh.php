@@ -111,9 +111,8 @@ class OaiPmh extends ResourceBase {
     $identifier = $this->currentRequest->get('identifier');
     $set_id = $this->currentRequest->get('set');
     $verbs = [
-      'Identify',
       'GetRecord',
-      'ListIdentifiers',
+      'Identify',
       'ListMetadataFormats',
       'ListRecords',
       'ListSets'
@@ -123,11 +122,7 @@ class OaiPmh extends ResourceBase {
         '@verb' => $verb,
         'oai-dc-string' => $base_oai_url
       ];
-      switch ($verb) {
-        case 'Identify':
-          $this->identify();
-          break;
-      }
+      $this->{$verb}();
     }
     else {
       $this->response['error'] = [
@@ -143,7 +138,10 @@ class OaiPmh extends ResourceBase {
     return $response;
   }
 
-  protected function identify() {
+  protected function GetRecord() {
+
+  }
+  protected function Identify() {
     /**
     * @todo fetch earliest created date on entities as defined in config
     * i.e. eventually let admins choose entity_type and optionally bundles of entities to expose to OAI
@@ -151,7 +149,7 @@ class OaiPmh extends ResourceBase {
     $earliest_date = \Drupal::database()->query('SELECT MIN(`created`)
       FROM {node_field_data}')->fetchField();
 
-    $this->response['Identify'] = [
+    $this->response[__FUNCTION__] = [
       'repositoryName' => \Drupal::config('system.site')->get('name'),
       'baseURL' => $this->currentRequest->getSchemeAndHttpHost() . '/oai/request',
       'protocolVersion' => '2.0',
@@ -170,5 +168,24 @@ class OaiPmh extends ResourceBase {
         ]
       ]
     ];
+  }
+
+  protected function ListMetadataFormats() {
+    // @todo support more metadata formats
+    $this->response[__FUNCTION__] = [
+      'metadataFormat' => [
+        'metadataPrefix' => 'oai_dc',
+        'schema' => 'http://www.openarchives.org/OAI/2.0/oai_dc.xsd',
+        'metadataNamespace' => 'http://www.openarchives.org/OAI/2.0/oai_dc/'
+      ],
+    ];
+  }
+
+  protected function ListRecords() {
+
+  }
+
+  protected function ListSets() {
+
   }
 }
