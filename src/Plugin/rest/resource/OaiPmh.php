@@ -166,7 +166,8 @@ class OaiPmh extends ResourceBase {
     if (count($components) != 3 ||
       $components[0] !== 'oai' ||
       $components[1] !== $this->currentRequest->getHttpHost() ||
-      empty($this->entity)) {
+      empty($this->entity) ||
+      (!empty($this->bundle) && $this->entity->bundle() !== $this->bundle)) {
       $this->setError('idDoesNotExist', 'The value of the identifier argument is unknown or illegal in this repository.');
     }
     $metadata_prefix = $this->currentRequest->get('metadataPrefix');
@@ -182,7 +183,7 @@ class OaiPmh extends ResourceBase {
       return;
     }
 
-    $this->response[__FUNCTION__] = $this->getRecordById($identifier);
+    $this->response[__FUNCTION__]['record'] = $this->getRecordById($identifier);
   }
 
   protected function Identify() {
@@ -226,7 +227,36 @@ class OaiPmh extends ResourceBase {
   }
 
   protected function ListRecords() {
+    $metadata_prefix = $this->currentRequest->get('metadataPrefix');
+    if (empty($metadata_prefix)) {
+      $this->setError('badArgument', 'Missing required argument metadataPrefix.');
+    }
+    elseif (!in_array($metadata_prefix, ['oai_dc'])) {
+      $this->setError('cannotDisseminateFormat', 'The metadata format identified by the value given for the metadataPrefix argument is not supported by the item or by the repository.');
+    }
+    if ($this->error) {
+      return;
+    }
 
+    $query = \Drupal::entityQuery('node')
+         ->condition('status', NODE_PUBLISHED);
+    if ($this->bundle) {
+      $query->condition('type', $this->bundle);
+    }
+
+    // do not include sets in the list of records
+    $set_nids = $this->getSetNids();
+    $query->condition('nid', $set_nids, 'NOT IN');
+
+    // @todo check set GET param and add a condition if it's there
+
+    $query->range(0, 25);
+    $nids = $query->execute();
+    foreach ($nids as $nid) {
+      $this->entity = Node::load($nid);
+      $identifier = 'oai:' . $this->currentRequest->getHttpHost() . ':' .$nid;
+      $this->response[__FUNCTION__]['record'][] = $this->getRecordById($identifier);
+    }
   }
 
   protected function ListSets() {
@@ -237,13 +267,7 @@ class OaiPmh extends ResourceBase {
 
     $this->response[__FUNCTION__] = [];
 
-    $table = 'node__' . $this->set_field;
-    $query = \Drupal::database()->select($table, 'f');
-
-    $column = $this->set_field . '_target_id';
-    $query->addField('f', $column);
-    $query->groupBy($column);
-    $nids = $query->execute()->fetchCol();
+    $nids = $this->getSetNids();
     foreach ($nids as $nid) {
       $this->entity = Node::load($nid);
       if ($this->entity && $this->entity->isPublished()) {
@@ -270,17 +294,15 @@ class OaiPmh extends ResourceBase {
 
   protected function getRecordById($identifier) {
     $record = [
-      'record' => [
-        'header' => [
-          'identifier' => $identifier,
-        ],
+      'header' => [
+        'identifier' => $identifier,
       ],
     ];
 
-    $record['record']['header']['datestamp'] = gmdate(self::OAI_DATE_FORMAT, $this->entity->changed->value);
+    $record['header']['datestamp'] = gmdate(self::OAI_DATE_FORMAT, $this->entity->changed->value);
     // @todo setSpec base on config
 
-    $record['record']['metadata'] = $this->getRecordMetadata();
+    $record['metadata'] = $this->getRecordMetadata();
 
     return $record;
   }
@@ -323,5 +345,17 @@ class OaiPmh extends ResourceBase {
     }
 
     return $metadata;
+  }
+
+  protected function getSetNids() {
+    $table = 'node__' . $this->set_field;
+    $query = \Drupal::database()->select($table, 'f');
+
+    $column = $this->set_field . '_target_id';
+    $query->addField('f', $column);
+    $query->groupBy($column);
+    $nids = $query->execute()->fetchCol();
+
+    return $nids;
   }
 }
