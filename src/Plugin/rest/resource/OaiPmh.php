@@ -10,6 +10,9 @@ use Psr\Log\LoggerInterface;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
 use Symfony\Component\HttpFoundation\Request;
+use Drupal\Core\Render\RenderContext;
+use Drupal\Core\Render\BubbleableMetadata;
+use Drupal\node\Entity\Node;
 
 /**
  * Provides a resource to get view modes by entity and bundle.
@@ -32,6 +35,7 @@ class OaiPmh extends ResourceBase {
   protected $currentUser;
   protected $currentRequest;
   private $response = [];
+  private $error = FALSE;
 
   const OAI_DATE_FORMAT = 'Y-m-d\TH:i:s\Z';
 
@@ -105,10 +109,11 @@ class OaiPmh extends ResourceBase {
       '@xsi:schemaLocation' => 'http://www.openarchives.org/OAI/2.0/ http://www.openarchives.org/OAI/2.0/OAI-PMH.xsd',
       '@name' => 'OAI-PMH',
       'responseDate' => gmdate(self::OAI_DATE_FORMAT, \Drupal::time()->getRequestTime()),
-      'request' => $base_oai_url,
+      'request' => [
+         'oai-dc-string' => $base_oai_url
+       ],
     ];
     $verb = $this->currentRequest->get('verb');
-    $identifier = $this->currentRequest->get('identifier');
     $set_id = $this->currentRequest->get('set');
     $verbs = [
       'GetRecord',
@@ -118,10 +123,7 @@ class OaiPmh extends ResourceBase {
       'ListSets'
     ];
     if (in_array($verb, $verbs)) {
-      $this->response['request'] = [
-        '@verb' => $verb,
-        'oai-dc-string' => $base_oai_url
-      ];
+      $this->response['request']['@verb'] = $verb;
       $this->{$verb}();
     }
     else {
@@ -140,7 +142,35 @@ class OaiPmh extends ResourceBase {
 
   protected function GetRecord() {
 
+    $identifier = $this->currentRequest->get('identifier');
+    if (empty($identifier)) {
+      $this->setError('badArgument', 'Missing required argument identifier.');
+    }
+    $components = explode(':', $identifier);
+    $nid = empty($components[2]) ? FALSE : $components[2];
+    $this->entity = Node::load($nid);
+    if (count($components) != 3 ||
+      $components[0] !== 'oai' ||
+      $components[1] !== $this->currentRequest->getHttpHost() ||
+      empty($this->entity)) {
+      $this->setError('idDoesNotExist', 'The value of the identifier argument is unknown or illegal in this repository.');
+    }
+    $metadata_prefix = $this->currentRequest->get('metadataPrefix');
+    if (empty($metadata_prefix)) {
+      $this->setError('badArgument', 'Missing required argument metadataPrefix.');
+    }
+    elseif (!in_array($metadata_prefix, ['oai_dc'])) {
+      $this->setError('cannotDisseminateFormat', 'The metadata format identified by the value given for the metadataPrefix argument is not supported by the item or by the repository.');
+    }
+
+    if ($this->error) {
+      unset($this->response['request']['@verb']);
+      return;
+    }
+
+    $this->response[__FUNCTION__] = $this->getRecordById($identifier);
   }
+
   protected function Identify() {
     /**
     * @todo fetch earliest created date on entities as defined in config
@@ -187,5 +217,60 @@ class OaiPmh extends ResourceBase {
 
   protected function ListSets() {
 
+  }
+
+  protected function setError($code, $string) {
+    $this->response['error'][] = [
+      '@code' => $code,
+      'oai-dc-string' =>  $string,
+    ];
+    $this->error = TRUE;
+  }
+
+  protected function getRecordById($identifier) {
+    $record = [
+      'record' => [
+        'header' => [
+          'identifier' => $identifier,
+        ],
+        'metadata' => [
+          'oai_dc:dc' => [
+            '@xmlns:oai_dc' => 'http://www.openarchives.org/OAI/2.0/oai_dc/',
+            '@xmlns:dc' => 'http://purl.org/dc/elements/1.1/',
+            '@xmlns:xsi' => 'http://www.w3.org/2001/XMLSchema-instance',
+            '@xsi:schemaLocation' => 'http://www.openarchives.org/OAI/2.0/oai_dc/ http://www.openarchives.org/OAI/2.0/oai_dc.xsd',
+          ],
+        ],
+      ],
+    ];
+    $record['record']['header']['datestamp'] = gmdate(self::OAI_DATE_FORMAT, $this->entity->changed->value);
+    // @todo setSpec base on config
+
+    // @see https://www.lullabot.com/articles/early-rendering-a-lesson-in-debugging-drupal-8
+    // can't just call metatag_generate_entity_metatags() here since it renders node token values,
+    // which in turn screwing up caching on the REST resource
+    // @todo ensure caching is working properly here
+    $context = new RenderContext();
+    $metatags = \Drupal::service('renderer')->executeInRenderContext($context, function() {
+      return metatag_generate_entity_metatags($this->entity);
+    });
+    if (!$context->isEmpty()) {
+      $bubbleable_metadata = $context->pop();
+      BubbleableMetadata::createFromObject($metatags)
+        ->merge($bubbleable_metadata);
+    }
+
+    // go through all the metatags ['#type' => 'tag'] render elements
+    // and find mappings for dublin core tags
+    foreach ($metatags as $term => $metatag) {
+      if (strpos($term, 'dcterms') !== FALSE) {
+        // metatag_dc stores terms ad dcterms.ELEMENT
+        // rename for oai_dc
+        $term = str_replace('dcterms.', 'dc:', $metatag['#attributes']['name']);
+        $record['record']['metadata']['oai_dc:dc'][$term][] = $metatag['#attributes']['content'];
+      }
+    }
+
+    return $record;
   }
 }

@@ -3,6 +3,8 @@
 /**
  * @file
  * Contains rest_oai_pmh.module.
+ *
+ * @todo load metatag_dc config elements for creator and subject and set multiple = TRUE
  */
 
 use Drupal\Core\Routing\RouteMatchInterface;
