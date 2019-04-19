@@ -1,0 +1,5 @@
+services:
+  encoder.oai_dc:
+    class: Drupal\rest_oai_pmh\Encoder\OaiDcEncoder
+    tags:
+      - {name: 'encoder', format: 'oai_dc'}

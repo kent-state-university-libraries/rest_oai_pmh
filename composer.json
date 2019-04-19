@@ -1,0 +1,16 @@
+{
+  "name": "drupal/rest_oai_pmh",
+  "type": "drupal-module",
+  "description": "Exposes schema.org dublin core mappings in an OAI-PMH endpoint",
+  "keywords": ["Drupal"],
+  "license": "GPL-2.0+",
+  "homepage": "https://www.drupal.org/project/rest_oai_pmh",
+  "minimum-stability": "dev",
+  "support": {
+    "issues": "https://www.drupal.org/project/issues/rest_oai_pmh",
+    "source": "http://cgit.drupalcode.org/rest_oai_pmh"
+  },
+  "require": {
+    "drupal/metatag"
+  }
+}

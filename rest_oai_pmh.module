@@ -1,0 +1,24 @@
+<?php
+
+/**
+ * @file
+ * Contains rest_oai_pmh.module.
+ */
+
+use Drupal\Core\Routing\RouteMatchInterface;
+
+/**
+ * Implements hook_help().
+ */
+function rest_oai_pmh_help($route_name, RouteMatchInterface $route_match) {
+  switch ($route_name) {
+    // Main module help for the rest_oai_pmh module.
+    case 'help.page.rest_oai_pmh':
+      $output = '';
+      $output .= '<h3>' . t('About') . '</h3>';
+      $output .= '<p>' . t('Exposes schema.org dublin core mappings in an OAI-PMH endpoint') . '</p>';
+      return $output;
+
+    default:
+  }
+}
