@@ -27,17 +27,26 @@ use Drupal\node\Entity\Node;
  */
 class OaiPmh extends ResourceBase {
 
+  const OAI_DATE_FORMAT = 'Y-m-d\TH:i:s\Z';
+
   /**
    * A current user instance.
    *
    * @var \Drupal\Core\Session\AccountProxyInterface
    */
   protected $currentUser;
+
   protected $currentRequest;
+
   private $response = [];
+
   private $error = FALSE;
 
-  const OAI_DATE_FORMAT = 'Y-m-d\TH:i:s\Z';
+  private $entity;
+
+  private $bundle;
+
+  private $set_field;
 
   /**
    * Constructs a new OaiPmh object.
@@ -67,6 +76,11 @@ class OaiPmh extends ResourceBase {
 
     $this->currentUser = $current_user;
     $this->currentRequest = $currentRequest;
+
+    // read the config settings for this endpoint
+    $config = \Drupal::config('rest_oai_pmh.restoaipmhsettings');
+    $this->bundle = $config->get('bundle');
+    $this->set_field = $config->get('set_field');
   }
 
   /**
@@ -216,7 +230,34 @@ class OaiPmh extends ResourceBase {
   }
 
   protected function ListSets() {
+    if (empty($this->set_field)) {
+      $this->setError('noSetHierarchy', 'The repository does not support sets.');
+      return;
+    }
 
+    $this->response[__FUNCTION__] = [];
+
+    $table = 'node__' . $this->set_field;
+    $query = \Drupal::database()->select($table, 'f');
+
+    $column = $this->set_field . '_target_id';
+    $query->addField('f', $column);
+    $query->groupBy($column);
+    $nids = $query->execute()->fetchCol();
+    foreach ($nids as $nid) {
+      $this->entity = Node::load($nid);
+      if ($this->entity && $this->entity->isPublished()) {
+        // @todo check for set hierarchy and show accordingly
+        // https://www.openarchives.org/OAI/2.0/guidelines-repository.htm#Sets-Hierarchy
+        $this->response[__FUNCTION__][] = [
+          'set' => [
+            'setSpec' => $this->entity->id(),
+            'setName' => $this->entity->label(),
+            'setDescription' => $this->getRecordMetadata()
+          ]
+        ];
+      }
+    }
   }
 
   protected function setError($code, $string) {
@@ -233,17 +274,27 @@ class OaiPmh extends ResourceBase {
         'header' => [
           'identifier' => $identifier,
         ],
-        'metadata' => [
-          'oai_dc:dc' => [
-            '@xmlns:oai_dc' => 'http://www.openarchives.org/OAI/2.0/oai_dc/',
-            '@xmlns:dc' => 'http://purl.org/dc/elements/1.1/',
-            '@xmlns:xsi' => 'http://www.w3.org/2001/XMLSchema-instance',
-            '@xsi:schemaLocation' => 'http://www.openarchives.org/OAI/2.0/oai_dc/ http://www.openarchives.org/OAI/2.0/oai_dc.xsd',
-          ],
-        ],
       ],
     ];
+
     $record['record']['header']['datestamp'] = gmdate(self::OAI_DATE_FORMAT, $this->entity->changed->value);
+    // @todo setSpec base on config
+
+    $record['record']['metadata'] = $this->getRecordMetadata();
+
+    return $record;
+  }
+
+  protected function getRecordMetadata() {
+    $metadata = [
+      'oai_dc:dc' => [
+        '@xmlns:oai_dc' => 'http://www.openarchives.org/OAI/2.0/oai_dc/',
+        '@xmlns:dc' => 'http://purl.org/dc/elements/1.1/',
+        '@xmlns:xsi' => 'http://www.w3.org/2001/XMLSchema-instance',
+        '@xsi:schemaLocation' => 'http://www.openarchives.org/OAI/2.0/oai_dc/ http://www.openarchives.org/OAI/2.0/oai_dc.xsd',
+      ]
+    ];
+
     // @todo setSpec base on config
 
     // @see https://www.lullabot.com/articles/early-rendering-a-lesson-in-debugging-drupal-8
@@ -267,10 +318,10 @@ class OaiPmh extends ResourceBase {
         // metatag_dc stores terms ad dcterms.ELEMENT
         // rename for oai_dc
         $term = str_replace('dcterms.', 'dc:', $metatag['#attributes']['name']);
-        $record['record']['metadata']['oai_dc:dc'][$term][] = $metatag['#attributes']['content'];
+        $metadata['oai_dc:dc'][$term][] = $metatag['#attributes']['content'];
       }
     }
 
-    return $record;
+    return $metadata;
   }
 }
