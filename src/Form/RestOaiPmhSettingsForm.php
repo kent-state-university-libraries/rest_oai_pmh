@@ -16,7 +16,7 @@ class RestOaiPmhSettingsForm extends ConfigFormBase {
    */
   protected function getEditableConfigNames() {
     return [
-      'rest_oai_pmh.restoaipmhsettings',
+      'rest_oai_pmh.settings',
     ];
   }
 
@@ -31,7 +31,7 @@ class RestOaiPmhSettingsForm extends ConfigFormBase {
    * {@inheritdoc}
    */
   public function buildForm(array $form, FormStateInterface $form_state) {
-    $config = $this->config('rest_oai_pmh.restoaipmhsettings');
+    $config = $this->config('rest_oai_pmh.settings');
 
     $form['entity_type'] = [
       '#type' => 'select',
@@ -107,7 +107,7 @@ class RestOaiPmhSettingsForm extends ConfigFormBase {
   public function submitForm(array &$form, FormStateInterface $form_state) {
     parent::submitForm($form, $form_state);
 
-    $this->config('rest_oai_pmh.restoaipmhsettings')
+    $this->config('rest_oai_pmh.settings')
       ->set('entity_type', $form_state->getValue('entity_type'))
       ->set('bundle', $form_state->getValue('bundle'))
       ->set('set_field', $form_state->getValue('set_field'))

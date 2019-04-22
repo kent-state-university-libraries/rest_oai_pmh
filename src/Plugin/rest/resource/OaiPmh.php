@@ -79,7 +79,7 @@ class OaiPmh extends ResourceBase {
     $this->currentRequest = $currentRequest;
 
     // read the config settings for this endpoint
-    $config = \Drupal::config('rest_oai_pmh.restoaipmhsettings');
+    $config = \Drupal::config('rest_oai_pmh.settings');
     $this->bundle = $config->get('bundle');
     $this->set_field = $config->get('set_field');
     $this->set_field_conditional = $config->get('set_field_conditional');
