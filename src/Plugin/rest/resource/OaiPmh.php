@@ -47,6 +47,7 @@ class OaiPmh extends ResourceBase {
   private $bundle;
 
   private $set_field;
+  private $set_field_conditional;
 
   /**
    * Constructs a new OaiPmh object.
@@ -81,6 +82,7 @@ class OaiPmh extends ResourceBase {
     $config = \Drupal::config('rest_oai_pmh.restoaipmhsettings');
     $this->bundle = $config->get('bundle');
     $this->set_field = $config->get('set_field');
+    $this->set_field_conditional = $config->get('set_field_conditional');
   }
 
   /**
@@ -183,7 +185,8 @@ class OaiPmh extends ResourceBase {
       return;
     }
 
-    $this->response[__FUNCTION__]['record'] = $this->getRecordById($identifier);
+    $set_nids = empty($this->set_field) ? [] : $this->getSetNids();
+    $this->response[__FUNCTION__]['record'] = $this->getRecordById($identifier, $set_nids);
   }
 
   protected function Identify() {
@@ -248,6 +251,12 @@ class OaiPmh extends ResourceBase {
     $set_nids = $this->getSetNids();
     $query->condition('nid', $set_nids, 'NOT IN');
 
+    // if sets are supported,
+    // be sure to only include items referenced by sets specified
+    if (!empty($this->set_field)) {
+      $query->condition("{$this->set_field}.target_id", $set_nids, 'IN');
+    }
+
     // @todo check set GET param and add a condition if it's there
 
     $query->range(0, 25);
@@ -255,7 +264,7 @@ class OaiPmh extends ResourceBase {
     foreach ($nids as $nid) {
       $this->entity = Node::load($nid);
       $identifier = 'oai:' . $this->currentRequest->getHttpHost() . ':' .$nid;
-      $this->response[__FUNCTION__]['record'][] = $this->getRecordById($identifier);
+      $this->response[__FUNCTION__]['record'][] = $this->getRecordById($identifier, $set_nids);
     }
   }
 
@@ -292,7 +301,7 @@ class OaiPmh extends ResourceBase {
     $this->error = TRUE;
   }
 
-  protected function getRecordById($identifier) {
+  protected function getRecordById($identifier, $set_nids) {
     $record = [
       'header' => [
         'identifier' => $identifier,
@@ -300,7 +309,15 @@ class OaiPmh extends ResourceBase {
     ];
 
     $record['header']['datestamp'] = gmdate(self::OAI_DATE_FORMAT, $this->entity->changed->value);
-    // @todo setSpec base on config
+    if (!empty($this->set_field) &&
+      $this->entity->hasField($this->set_field)) {
+      foreach ($this->entity->get($this->set_field) as $set) {
+        $set_nid = $set->entity->id();
+        if (in_array($set_nid, $set_nids)) {
+          $record['header']['setSpec'][] = $set_nid;
+        }
+      }
+    }
 
     $record['metadata'] = $this->getRecordMetadata();
 
@@ -348,13 +365,36 @@ class OaiPmh extends ResourceBase {
   }
 
   protected function getSetNids() {
+    // can not use entityQuery here because it does not allow for conditionals on referenced entities
+    // so just query the field SQL table directly
     $table = 'node__' . $this->set_field;
     $query = \Drupal::database()->select($table, 'f');
 
+    // return the {node}.nid of the sets referenced
     $column = $this->set_field . '_target_id';
     $query->addField('f', $column);
-    $query->groupBy($column);
-    $nids = $query->execute()->fetchCol();
+
+    // if the repo admin specified a field to filter the sets exposed to OAI
+    // add that filter to the query
+    if ($this->set_field_conditional) {
+      if (in_array($this->set_field_conditional, ['promote', 'sticky'])) {
+        $set_filter_table = 'node_field_data';
+        $set_filter_column = $this->set_field_conditional;
+        $set_filter_id = 'nid';
+      }
+      else {
+        $set_filter_table = 'node__' . $this->set_field_conditional;
+        $set_filter_column = $this->set_field_conditional . '_value';
+        $set_filter_id = 'entity_id';
+      }
+      $query->innerJoin($set_filter_table, 'set_filter', "set_filter.{$set_filter_id} = f.{$column}");
+      $query->condition("set_filter.{$set_filter_column}", 1);
+    }
+
+
+    $nids = $query->groupBy($column)
+      ->execute()
+      ->fetchCol();
 
     return $nids;
   }
