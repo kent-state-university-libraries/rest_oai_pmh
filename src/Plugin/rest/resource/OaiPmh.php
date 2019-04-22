@@ -312,7 +312,7 @@ class OaiPmh extends ResourceBase {
     if (!empty($this->set_field) &&
       $this->entity->hasField($this->set_field)) {
       foreach ($this->entity->get($this->set_field) as $set) {
-        $set_nid = $set->entity->id();
+        $set_nid = empty($set->entity) ? -1 : $set->entity->id();
         if (in_array($set_nid, $set_nids)) {
           $record['header']['setSpec'][] = $set_nid;
         }
