@@ -10,7 +10,5 @@
     "issues": "https://www.drupal.org/project/issues/rest_oai_pmh",
     "source": "http://cgit.drupalcode.org/rest_oai_pmh"
   },
-  "require": {
-    "drupal/metatag"
-  }
+  "require": { }
 }
