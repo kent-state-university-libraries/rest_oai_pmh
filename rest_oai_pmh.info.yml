@@ -2,6 +2,7 @@ name: 'REST OAI-PMH'
 type: module
 description: 'Exposes schema.org dublin core mappings in an OAI-PMH endpoint'
 core: 8.x
+configure: rest_oai_pmh.rest_oai_pmh_settings_form
 package: 'Web services'
 dependencies:
   metatag: metatag_dc
