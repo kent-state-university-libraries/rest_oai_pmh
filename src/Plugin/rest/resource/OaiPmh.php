@@ -27,6 +27,7 @@ use Drupal\node\Entity\Node;
  */
 class OaiPmh extends ResourceBase {
 
+  const OAI_DEFAULT_PATH = '/oai/request';
   const OAI_DATE_FORMAT = 'Y-m-d\TH:i:s\Z';
 
   /**
@@ -43,11 +44,14 @@ class OaiPmh extends ResourceBase {
   private $error = FALSE;
 
   private $entity;
-
   private $bundle;
 
   private $set_field;
   private $set_field_conditional;
+
+  private $repository_name;
+  private $repository_email;
+  private $repository_path;
 
   /**
    * Constructs a new OaiPmh object.
@@ -83,6 +87,12 @@ class OaiPmh extends ResourceBase {
     $this->bundle = $config->get('bundle');
     $this->set_field = $config->get('set_field');
     $this->set_field_conditional = $config->get('set_field_conditional');
+    $this->repository_name = $config->get('repository_name');
+    $this->repository_email = $config->get('repository_email');
+    $this->repository_path = $config->get('repository_path');
+    if (!$this->repository_path) {
+      $this->repository_path = self::OAI_DEFAULT_PATH;
+    }
   }
 
   /**
@@ -117,7 +127,7 @@ class OaiPmh extends ResourceBase {
       throw new AccessDeniedHttpException();
     }
 
-    $base_oai_url = $this->currentRequest->getSchemeAndHttpHost() . '/oai/request';
+    $base_oai_url = $this->currentRequest->getSchemeAndHttpHost() . $this->repository_path;
 
     $this->response = [
       '@xmlns' => 'http://www.openarchives.org/OAI/2.0/',
@@ -143,10 +153,7 @@ class OaiPmh extends ResourceBase {
       $this->{$verb}();
     }
     else {
-      $this->response['error'] = [
-        '@code' => 'badVerb',
-        'oai-dc-string' =>  'Value of the verb argument is not a legal OAI-PMH verb, the verb argument is missing, or the verb argument is repeated.'
-      ];
+     $this->setError('badVerb', 'Value of the verb argument is not a legal OAI-PMH verb, the verb argument is missing, or the verb argument is repeated.');
     }
 
 
@@ -198,10 +205,10 @@ class OaiPmh extends ResourceBase {
       FROM {node_field_data}')->fetchField();
 
     $this->response[__FUNCTION__] = [
-      'repositoryName' => \Drupal::config('system.site')->get('name'),
-      'baseURL' => $this->currentRequest->getSchemeAndHttpHost() . '/oai/request',
+      'repositoryName' => $this->repository_name,
+      'baseURL' => $this->currentRequest->getSchemeAndHttpHost() . $this->repository_path,
       'protocolVersion' => '2.0',
-      'adminEmail' => \Drupal::config('system.site')->get('mail'),
+      'adminEmail' => $this->repository_email,
       'earliestDatestamp' => gmdate(self::OAI_DATE_FORMAT, $earliest_date),
       'deletedRecord' => 'no',
       'granularity' => 'YYYY-MM-DDThh:mm:ssZ',
