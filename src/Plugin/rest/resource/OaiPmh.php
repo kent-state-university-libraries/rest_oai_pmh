@@ -46,7 +46,9 @@ class OaiPmh extends ResourceBase {
 
   private $bundle;
 
-  private $set_field, $set_field_conditional;
+  private $verb;
+
+  private $set_field, $set_field_conditional, $set_nids = [-1];
 
   private $repository_name, $repository_email, $repository_path;
 
@@ -164,7 +166,7 @@ class OaiPmh extends ResourceBase {
       'ListSets'
     ];
     if (in_array($verb, $verbs)) {
-      $this->response['request']['@verb'] = $verb;
+      $this->response['request']['@verb'] = $this->verb = $verb;
       $this->{$verb}();
     }
     else {
@@ -214,7 +216,7 @@ class OaiPmh extends ResourceBase {
     }
 
     $this->set_nids = empty($this->set_field) ? [] : $this->getSetNids();
-    $this->response[__FUNCTION__]['record'] = $this->getRecordById($identifier, $this->set_nids);
+    $this->response[$this->verb]['record'] = $this->getRecordById($identifier, $this->set_nids);
   }
 
   protected function Identify() {
@@ -225,7 +227,7 @@ class OaiPmh extends ResourceBase {
     $earliest_date = \Drupal::database()->query('SELECT MIN(`created`)
       FROM {node_field_data}')->fetchField();
 
-    $this->response[__FUNCTION__] = [
+    $this->response[$this->verb] = [
       'repositoryName' => $this->repository_name,
       'baseURL' => $this->currentRequest->getSchemeAndHttpHost() . $this->repository_path,
       'protocolVersion' => '2.0',
@@ -248,7 +250,7 @@ class OaiPmh extends ResourceBase {
 
   protected function ListMetadataFormats() {
     // @todo support more metadata formats
-    $this->response[__FUNCTION__] = [
+    $this->response[$this->verb] = [
       'metadataFormat' => [
         'metadataPrefix' => 'oai_dc',
         'schema' => 'http://www.openarchives.org/OAI/2.0/oai_dc.xsd',
@@ -263,7 +265,7 @@ class OaiPmh extends ResourceBase {
     foreach ($nids as $nid) {
       $this->entity = Node::load($nid);
       $identifier = 'oai:' . $this->currentRequest->getHttpHost() . ':' .$nid;
-      $this->response[__FUNCTION__]['header'][] = $this->getHeaderById($identifier);
+      $this->response[$this->verb]['header'][] = $this->getHeaderById($identifier);
     }
   }
 
@@ -272,7 +274,7 @@ class OaiPmh extends ResourceBase {
     foreach ($nids as $nid) {
       $this->entity = Node::load($nid);
       $identifier = 'oai:' . $this->currentRequest->getHttpHost() . ':' .$nid;
-      $this->response[__FUNCTION__]['record'][] = $this->getRecordById($identifier);
+      $this->response[$this->verb]['record'][] = $this->getRecordById($identifier);
     }
   }
 
@@ -282,7 +284,7 @@ class OaiPmh extends ResourceBase {
       return;
     }
 
-    $this->response[__FUNCTION__] = [];
+    $this->response[$this->verb] = [];
 
     $nids = $this->getSetNids();
     foreach ($nids as $nid) {
@@ -290,7 +292,7 @@ class OaiPmh extends ResourceBase {
       if ($this->entity && $this->entity->isPublished()) {
         // @todo check for set hierarchy and show accordingly
         // https://www.openarchives.org/OAI/2.0/guidelines-repository.htm#Sets-Hierarchy
-        $this->response[__FUNCTION__][] = [
+        $this->response[$this->verb][] = [
           'set' => [
             'setSpec' => $this->entity->id(),
             'setName' => $this->entity->label(),
@@ -421,7 +423,7 @@ class OaiPmh extends ResourceBase {
       // if we found a token and it's not expired, get the values needed
       if ($token &&
         $token['expires'] > \Drupal::time()->getRequestTime() &&
-        $token['verb'] == $verb) {
+        $token['verb'] == $this->verb) {
         $metadata_prefix = $token['metadata_prefix'];
         $start = $token['cursor'];
         $set = $token['set'];
@@ -484,14 +486,14 @@ class OaiPmh extends ResourceBase {
     $count_query = clone $query;
     $total_count = $count_query->count()->execute();
 
-    $this->response[$verb]['resumptionToken'] = [];
+    $this->response[$this->verb]['resumptionToken'] = [];
 
     // if the total results are more than what was returned here, add a resumption token
     if ($total_count > ($start + $end)) {
       // set the expiration date per the admin settings
       $expires = \Drupal::time()->getRequestTime() + $this->expiration;
 
-      $this->response[$verb]['resumptionToken'] += [
+      $this->response[$this->verb]['resumptionToken'] += [
         '@completeListSize' => $total_count,
         '@cursor' => $start,
         'oai-dc-string' => $this->next_token_id,
