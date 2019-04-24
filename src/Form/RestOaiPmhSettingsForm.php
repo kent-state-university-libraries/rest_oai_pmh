@@ -97,6 +97,7 @@ class RestOaiPmhSettingsForm extends ConfigFormBase {
       '#type' => 'textfield',
       '#title' => $this->t('Repository Name'),
       '#default_value' => $name ? : \Drupal::config('system.site')->get('name'),
+      '#required' => TRUE,
     ];
 
     $email = $config->get('repository_email');
@@ -104,6 +105,7 @@ class RestOaiPmhSettingsForm extends ConfigFormBase {
       '#type' => 'email',
       '#title' => $this->t('Repository Admin E-Mail'),
       '#default_value' => $email ? : \Drupal::config('system.site')->get('mail'),
+      '#required' => TRUE,
     ];
 
 
@@ -112,6 +114,7 @@ class RestOaiPmhSettingsForm extends ConfigFormBase {
       '#type' => 'textfield',
       '#title' => $this->t('Repository Path'),
       '#default_value' => $path ? : OaiPmh::OAI_DEFAULT_PATH,
+      '#required' => TRUE,
     ];
 
     $expiration = $config->get('expiration');
@@ -119,6 +122,7 @@ class RestOaiPmhSettingsForm extends ConfigFormBase {
       '#type' => 'number',
       '#title' => $this->t('The number of seconds until a resumption token expires'),
       '#default_value' => $expiration ? : 3600,
+      '#required' => TRUE,
     ];
 
     $max_records = $config->get('max_records');
@@ -126,6 +130,7 @@ class RestOaiPmhSettingsForm extends ConfigFormBase {
       '#type' => 'number',
       '#title' => $this->t('Maxium records returned for List Records'),
       '#default_value' => $max_records ? : 100,
+      '#required' => TRUE,
     ];
 
     return parent::buildForm($form, $form_state);

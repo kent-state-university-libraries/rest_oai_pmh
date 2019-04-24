@@ -28,7 +28,7 @@ function rest_oai_pmh_help($route_name, RouteMatchInterface $route_match) {
  */
 function rest_oai_pmh_rest_resource_alter(&$definitions) {
   // if the repository admin set a path, override the default URI
-	$path = \Drupal::config('rest_oai_pmh.settings')->get('repository_path');
+  $path = \Drupal::config('rest_oai_pmh.settings')->get('repository_path');
   if ($path) {
   	$definitions['oai_pmh']['uri_paths']['canonical'] = $path;
   }
