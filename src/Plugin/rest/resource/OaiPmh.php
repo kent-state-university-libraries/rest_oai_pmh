@@ -11,7 +11,6 @@ use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
 use Symfony\Component\HttpFoundation\Request;
 use Drupal\Core\Render\RenderContext;
-use Drupal\Core\Render\BubbleableMetadata;
 use Drupal\node\Entity\Node;
 
 /**
@@ -44,14 +43,14 @@ class OaiPmh extends ResourceBase {
   private $error = FALSE;
 
   private $entity;
+
   private $bundle;
 
-  private $set_field;
-  private $set_field_conditional;
+  private $set_field, $set_field_conditional;
 
-  private $repository_name;
-  private $repository_email;
-  private $repository_path;
+  private $repository_name, $repository_email, $repository_path;
+
+  private $expiration, $max_records;
 
   /**
    * Constructs a new OaiPmh object.
@@ -173,7 +172,12 @@ class OaiPmh extends ResourceBase {
 
 
     $response = new ResourceResponse($this->response, 200);
-    $response->addCacheableDependency($this->response['request']);
+    // for now disabling cache altogether until can come up with sensible method if there is one
+    $response->addCacheableDependency([
+      '#cache' => [
+        'max-age' => 0
+      ]
+    ]);
 
     return $response;
   }
@@ -428,11 +432,6 @@ class OaiPmh extends ResourceBase {
     $metatags = \Drupal::service('renderer')->executeInRenderContext($context, function() {
       return metatag_generate_entity_metatags($this->entity);
     });
-    if (!$context->isEmpty()) {
-      $bubbleable_metadata = $context->pop();
-      BubbleableMetadata::createFromObject($metatags)
-        ->merge($bubbleable_metadata);
-    }
 
     // go through all the metatags ['#type' => 'tag'] render elements
     // and find mappings for dublin core tags
