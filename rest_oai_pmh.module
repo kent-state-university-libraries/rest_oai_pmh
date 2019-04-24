@@ -3,8 +3,6 @@
 /**
  * @file
  * Contains rest_oai_pmh.module.
- *
- * @todo load metatag_dc config elements for creator and subject and set multiple = TRUE
  */
 
 use Drupal\Core\Routing\RouteMatchInterface;
@@ -33,5 +31,17 @@ function rest_oai_pmh_rest_resource_alter(&$definitions) {
 	$path = \Drupal::config('rest_oai_pmh.settings')->get('repository_path');
   if ($path) {
   	$definitions['oai_pmh']['uri_paths']['canonical'] = $path;
+  }
+}
+
+
+/**
+ * Implements hook_metatag_tags_alter().
+ */
+function rest_oai_pmh_metatag_tags_alter(&$definitions) {
+  // set some dublin core metatags to allow for multiple values
+  $terms = ['dcterms_creator', 'dcterms_subject'];
+  foreach ($terms as $term) {
+    $definitions[$term]['multiple'] = TRUE;
   }
 }
