@@ -93,35 +93,41 @@ class RestOaiPmhSettingsForm extends ConfigFormBase {
     ];
 
     $name = $config->get('repository_name');
-    if (!$name) {
-      $name = \Drupal::config('system.site')->get('name');
-    }
     $form['repository_name'] = [
       '#type' => 'textfield',
       '#title' => $this->t('Repository Name'),
-      '#default_value' => $name,
+      '#default_value' => $name ? : \Drupal::config('system.site')->get('name'),
     ];
 
     $email = $config->get('repository_email');
-    if (!$email) {
-      $email = \Drupal::config('system.site')->get('mail');
-    }
     $form['repository_email'] = [
       '#type' => 'email',
       '#title' => $this->t('Repository Admin E-Mail'),
-      '#default_value' => $email,
+      '#default_value' => $email ? : \Drupal::config('system.site')->get('mail'),
     ];
 
 
     $path = $config->get('repository_path');
-    if (!$path) {
-      $path = OaiPmh::OAI_DEFAULT_PATH;
-    }
     $form['repository_path'] = [
       '#type' => 'textfield',
       '#title' => $this->t('Repository Path'),
-      '#default_value' => $path,
+      '#default_value' => $path ? : OaiPmh::OAI_DEFAULT_PATH,
     ];
+
+    $expiration = $config->get('expiration');
+    $form['expiration'] = [
+      '#type' => 'number',
+      '#title' => $this->t('The number of seconds until a resumption token expires'),
+      '#default_value' => $expiration ? : 3600,
+    ];
+
+    $max_records = $config->get('max_records');
+    $form['max_records'] = [
+      '#type' => 'number',
+      '#title' => $this->t('Maxium records returned for List Records'),
+      '#default_value' => $max_records ? : 100,
+    ];
+
     return parent::buildForm($form, $form_state);
   }
 
@@ -171,6 +177,8 @@ class RestOaiPmhSettingsForm extends ConfigFormBase {
       ->set('set_field_conditional', $form_state->getValue('set_field_conditional'))
       ->set('repository_name', $form_state->getValue('repository_name'))
       ->set('repository_email', $form_state->getValue('repository_email'))
+      ->set('expiration', $form_state->getValue('expiration'))
+      ->set('max_records', $form_state->getValue('max_records'))
       ->save();
   }
 

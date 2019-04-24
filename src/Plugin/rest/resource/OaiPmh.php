@@ -84,14 +84,29 @@ class OaiPmh extends ResourceBase {
 
     // read the config settings for this endpoint
     $config = \Drupal::config('rest_oai_pmh.settings');
-    $this->bundle = $config->get('bundle');
-    $this->set_field = $config->get('set_field');
-    $this->set_field_conditional = $config->get('set_field_conditional');
-    $this->repository_name = $config->get('repository_name');
-    $this->repository_email = $config->get('repository_email');
-    $this->repository_path = $config->get('repository_path');
+    $fields = [
+      'bundle',
+      'set_field',
+      'set_field_conditional',
+      'repository_name',
+      'repository_email',
+      'repository_path',
+      'expiration',
+      'max_records',
+    ];
+    foreach ($fields as $field) {
+      $this->{$field} = $config->get($field);
+    }
+
     if (!$this->repository_path) {
       $this->repository_path = self::OAI_DEFAULT_PATH;
+    }
+
+    $this->keyValueStore = \Drupal::keyValue('rest_oai_pmh.resumption_token');
+    $this->next_token_id = $this->keyValueStore
+          ->get('next_token_id');
+    if (!$this->next_token_id) {
+      $this->next_token_id = 1;
     }
   }
 
@@ -237,8 +252,34 @@ class OaiPmh extends ResourceBase {
   }
 
   protected function ListRecords() {
+    $resumption_token = $this->currentRequest->get('resumptionToken');
     $metadata_prefix = $this->currentRequest->get('metadataPrefix');
-    if (empty($metadata_prefix)) {
+    $set = $this->currentRequest->get('set');
+    $start = 0;
+    $end = $this->max_records;
+    // if a resumption token was passed in the URL, try to find it in the key store
+    if ($resumption_token) {
+      $token = $this->keyValueStore->get($resumption_token);
+      // if we found a token and it's not expired, get the values needed
+      if ($token && $token['expires'] > \Drupal::time()->getRequestTime()) {
+        $metadata_prefix = $token['metadata_prefix'];
+        $start = $token['cursor'];
+        $set = $token['set'];
+      }
+      else {
+        // if we found a token, and we're here, it means the token is expired
+        // delete it from key value store
+        if ($token) {
+          $this->keyValueStore->delete($resumption_token);
+        }
+        $this->setError('badResumptionToken', 'The value of the resumptionToken argument is invalid or expired.');
+      }
+    }
+    // if a set parameter was passed, but this OAI endpoint doesn't support sets, throw error
+    elseif (empty($this->set_field) && $set) {
+      $this->setError('noSetHierarchy', 'The repository does not support sets.');
+    }
+    elseif (empty($metadata_prefix)) {
       $this->setError('badArgument', 'Missing required argument metadataPrefix.');
     }
     elseif (!in_array($metadata_prefix, ['oai_dc'])) {
@@ -254,19 +295,55 @@ class OaiPmh extends ResourceBase {
       $query->condition('type', $this->bundle);
     }
 
-    // do not include sets in the list of records
-    $set_nids = $this->getSetNids();
-    $query->condition('nid', $set_nids, 'NOT IN');
-
-    // if sets are supported,
-    // be sure to only include items referenced by sets specified
+    // if sets are supported
     if (!empty($this->set_field)) {
+      // do not include sets in the list of records
+      $set_nids = $this->getSetNids();
+      $query->condition('nid', $set_nids, 'NOT IN');
+
+      // if set ID was passed in URL, filter on that
+      // otherwise filter on all sets as defined on set field
+      if ($set) {
+        $set_nids = [$set];
+      }
       $query->condition("{$this->set_field}.target_id", $set_nids, 'IN');
     }
 
-    // @todo check set GET param and add a condition if it's there
+    // get the total number of results to show in resumption token
+    $count_query = clone $query;
+    $total_count = $count_query->count()->execute();
 
-    $query->range(0, 25);
+    $this->response[__FUNCTION__]['resumptionToken'] = [];
+
+    // if the total results are more than what was returned here, add a resumption token
+    if ($total_count > ($start + $end)) {
+      // set the expiration date per the admin settings
+      $expires = \Drupal::time()->getRequestTime() + $this->expiration;
+
+      $this->response[__FUNCTION__]['resumptionToken'] += [
+        '@completeListSize' => $total_count,
+        '@cursor' => $start,
+        'oai-dc-string' => $this->next_token_id,
+        '@expirationDate' => gmdate(self::OAI_DATE_FORMAT, $expires),
+      ];
+
+      // save the settings for the resumption token that will be shown in these results
+      $token = [
+        'metadata_prefix' => $metadata_prefix,
+        'set' => $set,
+        'cursor' => $start + $end,
+        'expires' => $expires
+      ];
+      $this->keyValueStore->set($this->next_token_id, $token);
+
+      // increment the token id for the next resumption token that will show
+      // @todo should we incorporate semaphores here to avoid possible duplicates?
+      $this->next_token_id += 1;
+      $this->keyValueStore->set('next_token_id', $this->next_token_id);
+    }
+
+    // finally, print all the records returned via our record query
+    $query->range($start, $end);
     $nids = $query->execute();
     foreach ($nids as $nid) {
       $this->entity = Node::load($nid);
