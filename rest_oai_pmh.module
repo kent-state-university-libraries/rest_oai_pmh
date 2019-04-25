@@ -40,6 +40,7 @@ function rest_oai_pmh_rest_resource_alter(&$definitions) {
  */
 function rest_oai_pmh_metatag_tags_alter(&$definitions) {
   // set some dublin core metatags to allow for multiple values
+  // otherwise, all values for the given field will print as one <element></element>
   $terms = ['dcterms_creator', 'dcterms_subject'];
   foreach ($terms as $term) {
     $definitions[$term]['multiple'] = TRUE;

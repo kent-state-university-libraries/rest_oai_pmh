@@ -17,8 +17,8 @@ When you enable this module a REST endpoint will be exposed, and any user that a
 
 ## Configure
 
-1. If you haven't already, set the Dublin Core Metatag mappings for your nodes. This mapping is how the endpoint will print metadata for the records and sets.
-2. In the Drupal permissions field, grant anonymous users the "Access GET on OAI-PMH" permissions" permission if you want anonymous users (i.e. OAI-PMH Harvesters) to be able to access the endpoint. You'll also want to be sure anonymous users can view published content.
+1. If you haven't already, set the Dublin Core Metatag mappings for your nodes at /admin/config/search/metatag/node. This mapping is how the endpoint will print metadata for the records and sets.
+2. In the Drupal permissions admin UI, grant anonymous users the "Access GET on OAI-PMH" permissions" permission if you want anonymous users (i.e. OAI-PMH Harvesters) to be able to access the endpoint. You'll also want to be sure anonymous users can view published content.
 ![Screenshot of permissions field](https://www.drupal.org/files/project-images/Screen%20Shot%20on%202019-04-24%20at%2011-32-43.png)
 3. Go to the REST OAI-PMH configuration form at /admin/config/services/rest/oai-pmh and supply your system configuration.
 

@@ -2,5 +2,4 @@ rest_oai_pmh.rest_oai_pmh_settings_form:
   title: 'OAI-PMH Settings'
   route_name: rest_oai_pmh.rest_oai_pmh_settings_form
   description: 'Settings for OAI-PMH endpoint'
-  weight: 99
   parent: system.admin_config_services

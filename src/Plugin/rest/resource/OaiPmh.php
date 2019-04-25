@@ -42,11 +42,19 @@ class OaiPmh extends ResourceBase {
 
   private $error = FALSE;
 
+  /**
+   * A temporary variable to store the Node entity object that'll be exposed to OAI
+   *
+   * @var \Drupal\node\Entity\Node
+   */
   private $entity;
 
   private $bundle;
 
-  private $verb;
+  /**
+   * Possible URL parameters passed in GET request
+   */
+  private $verb, $set_id, $identifier, $metadata_prefix, $resumption_token, $from, $until;
 
   private $set_field, $set_field_conditional, $set_nids = [-1];
 
@@ -103,12 +111,32 @@ class OaiPmh extends ResourceBase {
       $this->repository_path = self::OAI_DEFAULT_PATH;
     }
 
+    // use Drupal's key/value store for resumption tokens
     $this->keyValueStore = \Drupal::keyValue('rest_oai_pmh.resumption_token');
+    // read what the next resumption token will be (akin to an auto-incremented integer)
     $this->next_token_id = $this->keyValueStore
           ->get('next_token_id');
+    // if no resumption token has ever been set in this system, set the value to 1
     if (!$this->next_token_id) {
       $this->next_token_id = 1;
     }
+
+    $this->request_time = \Drupal::time()->getRequestTime();
+
+    $this->host = $this->currentRequest->getSchemeAndHttpHost();
+    $this->base_oai_url = $this->host . $this->repository_path;
+
+    // init the response array
+    $this->response = [
+      '@xmlns' => 'http://www.openarchives.org/OAI/2.0/',
+      '@xmlns:xsi' => 'http://www.w3.org/2001/XMLSchema-instance',
+      '@xsi:schemaLocation' => 'http://www.openarchives.org/OAI/2.0/ http://www.openarchives.org/OAI/2.0/OAI-PMH.xsd',
+      '@name' => 'OAI-PMH',
+      'responseDate' => gmdate(self::OAI_DATE_FORMAT, $this->request_time),
+      'request' => [
+         'oai-dc-string' => $this->base_oai_url
+       ],
+    ];
   }
 
   /**
@@ -136,27 +164,21 @@ class OaiPmh extends ResourceBase {
    *   Throws exception expected.
    */
   public function get() {
-
-    // You must to implement the logic of your REST Resource here.
-    // Use current user after pass authentication to validate access.
+    // make sure the user accessing has access to view nodes, since we're exposing them here
     if (!$this->currentUser->hasPermission('access content')) {
       throw new AccessDeniedHttpException();
     }
 
-    $base_oai_url = $this->currentRequest->getSchemeAndHttpHost() . $this->repository_path;
+    // find all the possible URL parameters
+    // @todo check for required/option here and throw errors instead of in each verb method
+    $this->verb = $this->currentRequest->get('verb');
+    $this->set_id = $this->currentRequest->get('set');
+    $this->identifier = $this->currentRequest->get('identifier');
+    $this->metadata_prefix = $this->currentRequest->get('metadataPrefix');
+    $this->resumption_token = $this->currentRequest->get('resumptionToken');
+    $this->from = $this->currentRequest->get('from');
+    $this->until = $this->currentRequest->get('until');
 
-    $this->response = [
-      '@xmlns' => 'http://www.openarchives.org/OAI/2.0/',
-      '@xmlns:xsi' => 'http://www.w3.org/2001/XMLSchema-instance',
-      '@xsi:schemaLocation' => 'http://www.openarchives.org/OAI/2.0/ http://www.openarchives.org/OAI/2.0/OAI-PMH.xsd',
-      '@name' => 'OAI-PMH',
-      'responseDate' => gmdate(self::OAI_DATE_FORMAT, \Drupal::time()->getRequestTime()),
-      'request' => [
-         'oai-dc-string' => $base_oai_url
-       ],
-    ];
-    $verb = $this->currentRequest->get('verb');
-    $set_id = $this->currentRequest->get('set');
     $verbs = [
       'GetRecord',
       'Identify',
@@ -165,14 +187,17 @@ class OaiPmh extends ResourceBase {
       'ListRecords',
       'ListSets'
     ];
-    if (in_array($verb, $verbs)) {
-      $this->response['request']['@verb'] = $this->verb = $verb;
-      $this->{$verb}();
+    // if the request is for a valid verb, proceed
+    if (in_array($this->verb, $verbs)) {
+      $this->response['request']['@verb'] = $this->verb;
+      // call the verb's respective method to populate the response with the required values
+      $this->{$this->verb}();
     }
+    // otherwise, we don't know what verb they're requesting, throw an error
+    // @todo double check with OAI specs we should still be sending a 200 response in all cases
     else {
      $this->setError('badVerb', 'Value of the verb argument is not a legal OAI-PMH verb, the verb argument is missing, or the verb argument is repeated.');
     }
-
 
     $response = new ResourceResponse($this->response, 200);
 
@@ -187,36 +212,42 @@ class OaiPmh extends ResourceBase {
   }
 
   protected function GetRecord() {
-
-    $identifier = $this->currentRequest->get('identifier');
-    if (empty($identifier)) {
+    if (empty($this->identifier)) {
       $this->setError('badArgument', 'Missing required argument identifier.');
     }
-    $components = explode(':', $identifier);
-    $nid = empty($components[2]) ? FALSE : $components[2];
+
+    // get the nid from the identifier string
+    $components = explode(':', $this->identifier);
+    $nid = empty($components[2]) ? 0 : $components[2];
+    // try to load the node from the identifier
     $this->entity = Node::load($nid);
+
+    // make sure we have a valid identifier string
+    // and that the node exists
+    // and that it's in the bundle the admin selected (if they selected one)
     if (count($components) != 3 ||
       $components[0] !== 'oai' ||
-      $components[1] !== $this->currentRequest->getHttpHost() ||
+      $components[1] !== $this->host ||
       empty($this->entity) ||
       (!empty($this->bundle) && $this->entity->bundle() !== $this->bundle)) {
       $this->setError('idDoesNotExist', 'The value of the identifier argument is unknown or illegal in this repository.');
     }
-    $metadata_prefix = $this->currentRequest->get('metadataPrefix');
-    if (empty($metadata_prefix)) {
+    // make sure we have a metadata format
+    if (empty($this->metadata_prefix)) {
       $this->setError('badArgument', 'Missing required argument metadataPrefix.');
     }
-    elseif (!in_array($metadata_prefix, ['oai_dc'])) {
+    // make sure it's a valid metadata format
+    elseif (!in_array($this->metadata_prefix, ['oai_dc'])) {
       $this->setError('cannotDisseminateFormat', 'The metadata format identified by the value given for the metadataPrefix argument is not supported by the item or by the repository.');
     }
 
     if ($this->error) {
       unset($this->response['request']['@verb']);
-      return;
     }
-
-    $this->set_nids = empty($this->set_field) ? [] : $this->getSetNids();
-    $this->response[$this->verb]['record'] = $this->getRecordById($identifier, $this->set_nids);
+    else {
+      $this->set_nids = empty($this->set_field) ? [] : $this->getSetNids();
+      $this->response[$this->verb]['record'] = $this->getRecordById();
+    }
   }
 
   protected function Identify() {
@@ -229,7 +260,7 @@ class OaiPmh extends ResourceBase {
 
     $this->response[$this->verb] = [
       'repositoryName' => $this->repository_name,
-      'baseURL' => $this->currentRequest->getSchemeAndHttpHost() . $this->repository_path,
+      'baseURL' => $this->base_oai_url,
       'protocolVersion' => '2.0',
       'adminEmail' => $this->repository_email,
       'earliestDatestamp' => gmdate(self::OAI_DATE_FORMAT, $earliest_date),
@@ -240,9 +271,9 @@ class OaiPmh extends ResourceBase {
           '@xmlns' => 'http://www.openarchives.org/OAI/2.0/oai-identifier',
           '@xsi:schemaLocation' => 'http://www.openarchives.org/OAI/2.0/oai-identifier http://www.openarchives.org/OAI/2.0/oai-identifier.xsd',
           'scheme' => 'oai',
-          'repositoryIdentifier' => $this->currentRequest->getHttpHost(),
+          'repositoryIdentifier' => $this->host,
           'delimiter' => ':',
-          'sampleIdentifier' => 'oai:' . $this->currentRequest->getHttpHost() . ':1'
+          'sampleIdentifier' => 'oai:' . $this->host . ':1'
         ]
       ]
     ];
@@ -264,8 +295,8 @@ class OaiPmh extends ResourceBase {
     $nids = $this->getRecordNids();
     foreach ($nids as $nid) {
       $this->entity = Node::load($nid);
-      $identifier = 'oai:' . $this->currentRequest->getHttpHost() . ':' .$nid;
-      $this->response[$this->verb]['header'][] = $this->getHeaderById($identifier);
+      $this->identifier = 'oai:' . $this->host . ':' . $nid;
+      $this->response[$this->verb]['header'][] = $this->getRecordHeader();
     }
   }
 
@@ -273,8 +304,8 @@ class OaiPmh extends ResourceBase {
     $nids = $this->getRecordNids();
     foreach ($nids as $nid) {
       $this->entity = Node::load($nid);
-      $identifier = 'oai:' . $this->currentRequest->getHttpHost() . ':' .$nid;
-      $this->response[$this->verb]['record'][] = $this->getRecordById($identifier);
+      $identifier = 'oai:' . $this->host . ':' . $nid;
+      $this->response[$this->verb]['record'][] = $this->getRecordById();
     }
   }
 
@@ -303,28 +334,39 @@ class OaiPmh extends ResourceBase {
     }
   }
 
-  protected function setError($code, $string) {
+  private function setError($code, $string) {
     $this->response['error'][] = [
       '@code' => $code,
       'oai-dc-string' =>  $string,
     ];
+
     $this->error = TRUE;
   }
 
-  protected function getRecordById($identifier) {
+  private function getRecordById() {
     $record = [];
-    $record['header'] = $this->getHeaderById($identifier);
+    $record['header'] = $this->getRecordHeader();
     $record['metadata'] = $this->getRecordMetadata();
 
     return $record;
   }
 
-  protected function getHeaderById($identifier) {
+  /**
+   * Helper function. Populate the header value for a record in the response array
+   *
+   * @see http://www.openarchives.org/OAI/openarchivesprotocol.html#Record
+   */
+  private function getRecordHeader() {
     $header = [
-      'identifier' => $identifier,
+      'identifier' => $this->identifier,
     ];
 
+    // set when the record was last updated
     $header['datestamp'] = gmdate(self::OAI_DATE_FORMAT, $this->entity->changed->value);
+
+    // if sets are supported
+    // AND the set is exposed to OAI
+    // add the setSpec to the header
     if (!empty($this->set_field) &&
       $this->entity->hasField($this->set_field)) {
       foreach ($this->entity->get($this->set_field) as $set) {
@@ -338,7 +380,7 @@ class OaiPmh extends ResourceBase {
     return $header;
   }
 
-  protected function getRecordMetadata() {
+  private function getRecordMetadata() {
     $metadata = [
       'oai_dc:dc' => [
         '@xmlns:oai_dc' => 'http://www.openarchives.org/OAI/2.0/oai_dc/',
@@ -347,8 +389,6 @@ class OaiPmh extends ResourceBase {
         '@xsi:schemaLocation' => 'http://www.openarchives.org/OAI/2.0/oai_dc/ http://www.openarchives.org/OAI/2.0/oai_dc.xsd',
       ]
     ];
-
-    // @todo setSpec base on config
 
     // @see https://www.lullabot.com/articles/early-rendering-a-lesson-in-debugging-drupal-8
     // can't just call metatag_generate_entity_metatags() here since it renders node token values,
@@ -373,7 +413,7 @@ class OaiPmh extends ResourceBase {
     return $metadata;
   }
 
-  protected function getSetNids() {
+  private function getSetNids() {
     // can not use entityQuery here because it does not allow for conditionals on referenced entities
     // so just query the field SQL table directly
     $table = 'node__' . $this->set_field;
@@ -409,21 +449,15 @@ class OaiPmh extends ResourceBase {
   }
 
   private function getRecordNids() {
-    $verb = $this->response['request']['@verb'];
-    $resumption_token = $this->currentRequest->get('resumptionToken');
-    $metadata_prefix = $this->currentRequest->get('metadataPrefix');
-    $set = $this->currentRequest->get('set');
-    $from = $this->currentRequest->get('from');
-    $until = $this->currentRequest->get('until');
     $start = 0;
     $end = $this->max_records;
     // if a resumption token was passed in the URL, try to find it in the key store
-    if ($resumption_token) {
-      $token = $this->keyValueStore->get($resumption_token);
+    if ($this->resumption_token) {
+      $token = $this->keyValueStore->get($this->resumption_token);
       // if we found a token and it's not expired, get the values needed
       if ($token &&
-        $token['expires'] > \Drupal::time()->getRequestTime() &&
-        $token['verb'] == $this->verb) {
+        $token['expires'] > $this->request_time &&
+        $token['verb'] === $this->verb) {
         $metadata_prefix = $token['metadata_prefix'];
         $start = $token['cursor'];
         $set = $token['set'];
@@ -433,20 +467,20 @@ class OaiPmh extends ResourceBase {
       else {
         // if we found a token, and we're here, it means the token is expired
         // delete it from key value store
-        if ($token && $token['expires'] < \Drupal::time()->getRequestTime()) {
+        if ($token && $token['expires'] < $this->request_time) {
           $this->keyValueStore->delete($resumption_token);
         }
         $this->setError('badResumptionToken', 'The value of the resumptionToken argument is invalid or expired.');
       }
     }
     // if a set parameter was passed, but this OAI endpoint doesn't support sets, throw error
-    elseif (empty($this->set_field) && $set) {
+    elseif (empty($this->set_field) && $this->set) {
       $this->setError('noSetHierarchy', 'The repository does not support sets.');
     }
-    elseif (empty($metadata_prefix)) {
+    elseif (empty($this->metadata_prefix)) {
       $this->setError('badArgument', 'Missing required argument metadataPrefix.');
     }
-    elseif (!in_array($metadata_prefix, ['oai_dc'])) {
+    elseif (!in_array($this->metadata_prefix, ['oai_dc'])) {
       $this->setError('cannotDisseminateFormat', 'The metadata format identified by the value given for the metadataPrefix argument is not supported by the item or by the repository.');
     }
     if ($this->error) {
@@ -454,7 +488,9 @@ class OaiPmh extends ResourceBase {
     }
 
     $query = \Drupal::entityQuery('node')
-         ->condition('status', NODE_PUBLISHED);
+      ->condition('status', NODE_PUBLISHED);
+
+    // if the OAI has a bundle filter, filter on that bundle
     if ($this->bundle) {
       $query->condition('type', $this->bundle);
     }
@@ -473,13 +509,13 @@ class OaiPmh extends ResourceBase {
       $query->condition("{$this->set_field}.target_id", $this->set_nids, 'IN');
     }
 
-    if ($from) {
-      $this->response['request']['@from'] = $from;
-      $query->condition('changed', strtotime($from), '>=');
+    if ($this->from) {
+      $this->response['request']['@from'] = $this->from;
+      $query->condition('changed', strtotime($this->from), '>=');
     }
     if ($until) {
-      $this->response['request']['@until'] = $until;
-      $query->condition('changed', strtotime($until), '<=');
+      $this->response['request']['@until'] = $this->until;
+      $query->condition('changed', strtotime($this->until), '<=');
     }
 
     // get the total number of results to show in resumption token
@@ -491,7 +527,7 @@ class OaiPmh extends ResourceBase {
     // if the total results are more than what was returned here, add a resumption token
     if ($total_count > ($start + $end)) {
       // set the expiration date per the admin settings
-      $expires = \Drupal::time()->getRequestTime() + $this->expiration;
+      $expires = $this->request_time + $this->expiration;
 
       $this->response[$this->verb]['resumptionToken'] += [
         '@completeListSize' => $total_count,
