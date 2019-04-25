@@ -123,8 +123,8 @@ class OaiPmh extends ResourceBase {
 
     $this->request_time = \Drupal::time()->getRequestTime();
 
-    $this->host = $this->currentRequest->getSchemeAndHttpHost();
-    $this->base_oai_url = $this->host . $this->repository_path;
+    $this->host = $this->currentRequest->getHttpHost();
+    $this->base_oai_url = $this->currentRequest->getSchemeAndHttpHost() . $this->repository_path;
 
     // init the response array
     $this->response = [
@@ -304,7 +304,7 @@ class OaiPmh extends ResourceBase {
     $nids = $this->getRecordNids();
     foreach ($nids as $nid) {
       $this->entity = Node::load($nid);
-      $identifier = 'oai:' . $this->host . ':' . $nid;
+      $this->identifier = 'oai:' . $this->host . ':' . $nid;
       $this->response[$this->verb]['record'][] = $this->getRecordById();
     }
   }
