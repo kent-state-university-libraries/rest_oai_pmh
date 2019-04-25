@@ -503,10 +503,8 @@ class OaiPmh extends ResourceBase {
 
       // if set ID was passed in URL, filter on that
       // otherwise filter on all sets as defined on set field
-      if ($set) {
-        $this->set_nids = [$set];
-      }
-      $query->condition("{$this->set_field}.target_id", $this->set_nids, 'IN');
+      $set_nids = $this->set_id ? [$this->set_id] : $this->set_nids;
+      $query->condition("{$this->set_field}.target_id", $set_nids, 'IN');
     }
 
     if ($this->from) {
