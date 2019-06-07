@@ -6,6 +6,7 @@ use Drupal\Core\Form\ConfigFormBase;
 use Drupal\Core\Form\FormStateInterface;
 use Drupal\Core\Entity\ContentEntityType;
 use Drupal\rest_oai_pmh\Plugin\rest\resource\OaiPmh;
+use Drupal\views\Views;
 
 /**
  * Class RestOaiPmhSettingsForm.
@@ -34,62 +35,30 @@ class RestOaiPmhSettingsForm extends ConfigFormBase {
   public function buildForm(array $form, FormStateInterface $form_state) {
     $config = $this->config('rest_oai_pmh.settings');
 
-    $form['entity_type'] = [
-      '#type' => 'select',
-      '#title' => $this->t('Entity Type'),
-      '#description' => $this->t('The entity type to expose to OAI-PMH'),
-      '#options' => ['node' => $this->t('Node')],
-      '#required' => TRUE,
-      '#default_value' => $config->get('entity_type') ? $config->get('entity_type') : 'node',
+    $form['data'] = [
+      '#type' => 'details',
+      '#open' => TRUE,
+      '#title' => $this->t('What to expose to OAI-PMH'),
+      '#description' => $this->t('<p>Select which Views with an Entity Reference display will be exposed to OAI-PMH.</p>
+        <p>Each View will be represented as a set in the OAI-PMH endpoint, except for those Views that contain a contextual filter to an entity reference. If the View has one of these contextual filters, the possible values in the referenced field will be used as the sets.</p>'),
     ];
 
-    $types = \Drupal::entityTypeManager()
-      ->getStorage('node_type')
-      ->loadMultiple();
-    $bundles = ['- All bundles -'];
-    $fields = ['- No sets -'];
-    $boolean_fields = ['- All collections exposed -'];
-    foreach ($types as $type) {
-      $bundle = $type->id();
-      $bundles[$bundle] = $type->label();
 
-      // get all the entity_reference fields for this bundle
-      // @todo possibly support other field types?
-      $field_definitions = \Drupal::service('entity_field.manager')
-        ->getFieldDefinitions('node', $bundle);
-      foreach ($field_definitions as $field_name => $field_definition) {
-        if (!empty($field_definition->getTargetBundle())) {
-          if ($field_definition->getType() === 'entity_reference' &&
-            $field_definition->getFieldStorageDefinition()->getSetting('target_type') === 'node') {
-            $fields[$field_name] = $field_name . ': ' . $field_definition->getLabel();
-          }
-          elseif ($field_definition->getType() === 'boolean') {
-            $boolean_fields[$field_name] = $field_name . ': ' . $field_definition->getLabel();
-          }
-        }
-      }
-
+    $displays = Views::getApplicableViews('entity_reference_display');
+    $view_storage = \Drupal::entityTypeManager()->getStorage('view');
+    $view_displays = [];
+    foreach ($displays as $data) {
+      list($view_id, $display_id) = $data;
+      $view = $view_storage->load($view_id);
+      $display = $view->get('display');
+      $set_name = $view_id . ':' . $display_id;
+      $view_displays[$set_name] = $display[$display_id]['display_title'] . ' (' . $set_name . ')';
     }
-    $form['bundle'] = [
-      '#type' => 'select',
-      '#title' => $this->t('Bundle'),
-      '#description' => $this->t('(Optional) bundle to expose to OAI-PMH. If a bundle is not selected, all nodes will be exposed to OAI-PMH'),
-      '#options' => $bundles,
-      '#default_value' => $config->get('bundle'),
-    ];
-    $form['set_field'] = [
-      '#type' => 'select',
-      '#title' => $this->t('Set Field'),
-      '#description' => $this->t('The entity reference field used to store set information.<br>If a node has a value in this field, it means the respective node is a member of the set the field references.'),
-      '#options' => $fields,
-      '#default_value' => $config->get('set_field'),
-    ];
-    $form['set_field_conditional'] = [
-      '#type' => 'select',
-      '#title' => $this->t('Set Field Conditional'),
-      '#description' => $this->t('If you do not want all sets exposed to OAI-PMH, you select a boolean field that when set to "TRUE" the set will be exposed to OAI-PMH'),
-      '#options' => $boolean_fields,
-      '#default_value' => $config->get('set_field_conditional'),
+
+    $form['data']['view_displays'] = [
+      '#type' => 'checkboxes',
+      '#options' => $view_displays,
+      '#default_value' => $config->get('view_displays') ? : [],
     ];
 
     $name = $config->get('repository_name');
@@ -122,14 +91,6 @@ class RestOaiPmhSettingsForm extends ConfigFormBase {
       '#type' => 'number',
       '#title' => $this->t('The number of seconds until a resumption token expires'),
       '#default_value' => $expiration ? : 3600,
-      '#required' => TRUE,
-    ];
-
-    $max_records = $config->get('max_records');
-    $form['max_records'] = [
-      '#type' => 'number',
-      '#title' => $this->t('Maxium records returned for List Records'),
-      '#default_value' => $max_records ? : 100,
       '#required' => TRUE,
     ];
 
@@ -175,15 +136,14 @@ class RestOaiPmhSettingsForm extends ConfigFormBase {
   public function submitForm(array &$form, FormStateInterface $form_state) {
     parent::submitForm($form, $form_state);
 
+    $earliest_date = \Drupal::time()->getRequestTime();
+
     $this->config('rest_oai_pmh.settings')
-      ->set('entity_type', $form_state->getValue('entity_type'))
-      ->set('bundle', $form_state->getValue('bundle'))
-      ->set('set_field', $form_state->getValue('set_field'))
-      ->set('set_field_conditional', $form_state->getValue('set_field_conditional'))
+      ->set('view_displays', $form_state->getValue('view_displays'))
       ->set('repository_name', $form_state->getValue('repository_name'))
       ->set('repository_email', $form_state->getValue('repository_email'))
       ->set('expiration', $form_state->getValue('expiration'))
-      ->set('max_records', $form_state->getValue('max_records'))
+      ->set('earliest_date', $earliest_date);
       ->save();
   }
 
