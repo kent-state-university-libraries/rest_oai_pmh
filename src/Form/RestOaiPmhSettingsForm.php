@@ -143,7 +143,7 @@ class RestOaiPmhSettingsForm extends ConfigFormBase {
       ->set('repository_name', $form_state->getValue('repository_name'))
       ->set('repository_email', $form_state->getValue('repository_email'))
       ->set('expiration', $form_state->getValue('expiration'))
-      ->set('earliest_date', $earliest_date);
+      ->set('earliest_date', $earliest_date)
       ->save();
   }
 

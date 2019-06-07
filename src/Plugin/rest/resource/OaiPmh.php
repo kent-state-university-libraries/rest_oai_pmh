@@ -215,8 +215,7 @@ class OaiPmh extends ResourceBase {
       return;
     }
 
-    $this->set_nids = empty($this->set_field) ? [] : $this->getSetNids();
-    $this->response[$this->verb]['record'] = $this->getRecordById($identifier, $this->set_nids);
+    $this->response[$this->verb]['record'] = $this->getRecordById($identifier);
   }
 
   protected function Identify() {
@@ -254,16 +253,16 @@ class OaiPmh extends ResourceBase {
 
 
   protected function ListIdentifiers() {
-    $nids = $this->getRecordNids();
-    foreach ($nids as $id => $data) {
+    $ids = $this->getRecordIds();
+    foreach ($ids as $id => $data) {
       $identifier = $this->buildIdentifier($id);
       $this->response[$this->verb]['header'][] = $this->getHeaderById($identifier);
     }
   }
 
   protected function ListRecords() {
-    $nids = $this->getRecordNids();
-    foreach ($nids as $id => $data) {
+    $ids = $this->getRecordIds();
+    foreach ($ids as $id => $data) {
       $identifier = $this->buildIdentifier($id);
       $this->loadEntity($identifier);
       $this->response[$this->verb]['record'][] = $this->getRecordById($identifier);
@@ -315,7 +314,8 @@ class OaiPmh extends ResourceBase {
       'identifier' => $identifier,
     ];
 
-    $header['datestamp'] = gmdate(self::OAI_DATE_FORMAT, $this->entity->changed->value);
+    // @todo query entity type for changed trait
+    // $header['datestamp'] = gmdate(self::OAI_DATE_FORMAT, $this->entity->changed->value);
 
 
     // @todo find sets this entity belongs to
@@ -358,21 +358,23 @@ class OaiPmh extends ResourceBase {
     return $metadata;
   }
 
-  protected function getSetNids() {
-    $nids = [];
+  protected function getSetIds() {
+    $ids = [];
 
-    return $nids;
+    return $ids;
   }
 
-  private function getRecordNids() {
+  private function getRecordIds() {
     $verb = $this->response['request']['@verb'];
     $resumption_token = $this->currentRequest->get('resumptionToken');
     $metadata_prefix = $this->currentRequest->get('metadataPrefix');
     $set = $this->currentRequest->get('set');
     $from = $this->currentRequest->get('from');
     $until = $this->currentRequest->get('until');
-    $start = 0;
+    $cursor = 0;
     $end = 10;
+    $completeListSize = 0;
+    $views_total = [];
     // if a resumption token was passed in the URL, try to find it in the key store
     if ($resumption_token) {
       $token = $this->keyValueStore->get($resumption_token);
@@ -381,10 +383,12 @@ class OaiPmh extends ResourceBase {
         $token['expires'] > \Drupal::time()->getRequestTime() &&
         $token['verb'] == $this->verb) {
         $metadata_prefix = $token['metadata_prefix'];
-        $start = $token['cursor'];
+        $cursor = $token['cursor'];
         $set = $token['set'];
         $from = $token['from'];
         $until = $token['until'];
+        $views_total = $token['views_total'];
+        $completeListSize = array_sum($this->view_total);
       }
       else {
         // if we found a token, and we're here, it means the token is expired
@@ -396,7 +400,7 @@ class OaiPmh extends ResourceBase {
       }
     }
     // if a set parameter was passed, but this OAI endpoint doesn't support sets, throw error
-    elseif (empty($this->set_field) && empty($this->view_displays) && $set) {
+    elseif (empty($this->view_displays) && $set) {
       $this->setError('noSetHierarchy', 'The repository does not support sets.');
     }
     elseif (empty($metadata_prefix)) {
@@ -424,35 +428,56 @@ class OaiPmh extends ResourceBase {
       $this->response['request']['@until'] = $until;
       $query->condition('changed', strtotime($until), '<=');
     }
-    $total_count = 0;
+    $return = FALSE;
+    $offset = $cursor;
     foreach ($this->view_displays as $set_view) {
+      // if we've already printed all the records from this View
+      // subtract the number of records in this View from the $offset value
+      // and proceed to the next View
+      if (!empty($views_total[$set_view]) && $offset >= $views_total[$set_view]) {
+        $offset -= $views_total[$set_view];
+        continue;
+      }
+
       list($view_id, $display_id) = explode(':', $set_view);
       $this->display_id = $display_id;
+
       $this->view = Views::getView($view_id);
+
       $this->view->setDisplay($display_id);
       $this->view->get_total_rows = TRUE;
-      $this->view->build();
-      $end = $this->view->getItemsPerPage();
-      $this->view->setOffset($start);
+      $this->view->setOffset($offset);
+      $this->view->element['#cache']['keys'][] = 'page:' . $cursor;
 
       $context = new RenderContext();
-      $nids = \Drupal::service('renderer')->executeInRenderContext($context, function() {
+      $ids = \Drupal::service('renderer')->executeInRenderContext($context, function() {
         return $this->view->executeDisplay($this->display_id);
       });
 
-      $total_count += $this->view->total_rows;
+      $views_total[$set_view] = $this->view->total_rows;
+
+      // save the first result set from the first View executed
+      // since we're traversing all the Views on the first page load to get the completeListSize
+      //
+      if (empty($return)) {
+        $return = $ids;
+        $end = $this->view->getItemsPerPage();
+        if ($end > count($ids)) {
+          $end = count($ids);
+        }
+      }
     }
 
     $this->response[$this->verb]['resumptionToken'] = [];
-
+    $completeListSize = array_sum($views_total);
     // if the total results are more than what was returned here, add a resumption token
-    if ($total_count > ($start + $end)) {
+    if ($completeListSize > ($cursor + $end)) {
       // set the expiration date per the admin settings
       $expires = \Drupal::time()->getRequestTime() + $this->expiration;
 
       $this->response[$this->verb]['resumptionToken'] += [
-        '@completeListSize' => $total_count,
-        '@cursor' => $start,
+        '@completeListSize' => $completeListSize,
+        '@cursor' => $cursor,
         'oai-dc-string' => $this->next_token_id,
         '@expirationDate' => gmdate(self::OAI_DATE_FORMAT, $expires),
       ];
@@ -461,11 +486,12 @@ class OaiPmh extends ResourceBase {
       $token = [
         'metadata_prefix' => $metadata_prefix,
         'set' => $set,
-        'cursor' => $start + $end,
+        'cursor' => $cursor + $end,
         'expires' => $expires,
         'verb' => $this->response['request']['@verb'],
         'from' =>$from,
-        'until' => $until
+        'until' => $until,
+        'views_total' => $views_total,
       ];
       $this->keyValueStore->set($this->next_token_id, $token);
 
@@ -475,7 +501,7 @@ class OaiPmh extends ResourceBase {
       $this->keyValueStore->set('next_token_id', $this->next_token_id);
     }
 
-    return $nids;
+    return $return;
   }
 
   protected function buildIdentifier($entity_id) {
