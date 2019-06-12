@@ -61,6 +61,14 @@ class RestOaiPmhSettingsForm extends ConfigFormBase {
       '#default_value' => $config->get('view_displays') ? : [],
     ];
 
+    $support_sets = $config->get('support_sets');
+    $form['support_sets'] = [
+      '#type' => 'checkbox',
+      '#title' => $this->t('Support Sets'),
+      '#description' => $this->t('If you want all the Views selected to be treated a single set, and simply expose all the records, you can uncheck this box to have your OAI-PMH endpoint not support sets.'),
+      '#default_value' => is_null($support_sets) ? TRUE : $support_sets,
+    ];
+
     $name = $config->get('repository_name');
     $form['repository_name'] = [
       '#type' => 'textfield',
@@ -135,16 +143,31 @@ class RestOaiPmhSettingsForm extends ConfigFormBase {
    */
   public function submitForm(array &$form, FormStateInterface $form_state) {
     parent::submitForm($form, $form_state);
+    $config = $this->config('rest_oai_pmh.settings');
 
-    $earliest_date = \Drupal::time()->getRequestTime();
+    $old_view_displays = $config->get('view_displays');
+    $view_displays = [];
+    $rebuild_views = [];
+    foreach ($form_state->getValue('view_displays') as $view_display => $enabled) {
+      if ($enabled) {
+        $view_displays[$view_display] = $view_display;
+        if (empty($old_view_displays[$view_display])) {
+          $rebuild_views[] = $view_display;
+        }
+      }
+      else {
+        rest_oai_pmh_remove_sets_by_display_id($view_display);
+      }
+    }
 
-    $this->config('rest_oai_pmh.settings')
-      ->set('view_displays', $form_state->getValue('view_displays'))
+    $config->set('view_displays', $view_displays)
+      ->set('support_sets', $form_state->getValue('support_sets'))
       ->set('repository_name', $form_state->getValue('repository_name'))
       ->set('repository_email', $form_state->getValue('repository_email'))
       ->set('expiration', $form_state->getValue('expiration'))
-      ->set('earliest_date', $earliest_date)
       ->save();
+
+    rest_oai_pmh_cache_views($rebuild_views);
   }
 
   protected function updateRestEndpointPath($path) {

@@ -1,0 +1,117 @@
+<?php
+
+/**
+ * Implements hook_schema().
+ */
+function rest_oai_pmh_schema() {
+  $schema = [];
+
+  $schema['rest_oai_pmh_record'] = [
+    'description' => 'Stores the items that will be exposed to OAI-PMH.',
+    'fields' => [
+      'entity_type' => [
+        'description' => 'The entity id of the record',
+        'type' => 'varchar',
+        'length' => 32,
+        'not null' => TRUE,
+      ],
+      'entity_id' => [
+        'description' => 'The entity type of the record',
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+      ],
+      'created' => [
+        'description' => 'A timestamp indicating when the record was created',
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+      ],
+      'changed' => [
+        'description' => 'A timestamp indicating when the record was last changed',
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+      ],
+    ],
+    'primary key' => ['entity_type', 'entity_id'],
+  ];
+
+  $schema['rest_oai_pmh_set'] = [
+    'description' => 'Stores the sets that will be exposed to OAI-PMH.',
+    'fields' => [
+      'set_id' => [
+        'description' => 'The setSpec of the set',
+        'type' => 'varchar',
+        'length' => 32,
+        'not null' => TRUE,
+      ],
+      'entity_type' => [
+        'description' => 'The entity type of the set',
+        'type' => 'varchar',
+        'length' => 32,
+        'not null' => TRUE,
+      ],
+      'label' => [
+        'type' => 'varchar',
+        'length' => 255,
+        'not null' => TRUE,
+      ],
+      'description' => [
+        'type' => 'varchar',
+        'length' => 255,
+      ],
+      'limit' => [
+        'description' => 'The pager/limit value for the set as defined by Views',
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'default' => 10,
+      ],
+      'view_display' => [
+        'description' => 'The View Display this set was exposed from',
+        'type' => 'varchar',
+        'length' => 255,
+      ],
+    ],
+    'primary key' => ['set_id'],
+  ];
+
+  $schema['rest_oai_pmh_member'] = [
+    'description' => 'Stores which set(s) each record is a member of.',
+    'fields' => [
+      'entity_type' => [
+        'description' => 'The entity type of the record',
+        'type' => 'varchar',
+        'length' => 32,
+        'not null' => TRUE,
+      ],
+      'entity_id' => [
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+      ],
+      'set_id' => [
+        'type' => 'varchar',
+        'length' => 32,
+        'not null' => TRUE,
+      ],
+    ],
+    'primary key' => ['entity_type', 'entity_id', 'set_id'],
+  ];
+
+  return $schema;
+}
+
+/**
+ * Add the necessary tables to store OAI-PMH data
+ */
+function rest_oai_pmh_update_8001() {
+  $schema = \Drupal\Core\Database\Database::getConnection()->schema();
+  $tables = rest_oai_pmh_schema();
+  foreach ($tables as $name => $table) {
+    if (!$schema->tableExists($name)) {
+      $schema->createTable($name, $table);
+    }
+  }
+}

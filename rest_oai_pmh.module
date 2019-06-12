@@ -6,6 +6,7 @@
  */
 
 use Drupal\Core\Routing\RouteMatchInterface;
+use Drupal\Core\Entity\EntityInterface;
 
 /**
  * Implements hook_help().
@@ -40,9 +41,219 @@ function rest_oai_pmh_rest_resource_alter(&$definitions) {
  */
 function rest_oai_pmh_metatag_tags_alter(&$definitions) {
   // set some dublin core metatags to allow for multiple values
-  // otherwise, all values for the given field will print as one <element></element>
   $terms = ['dcterms_creator', 'dcterms_subject'];
   foreach ($terms as $term) {
     $definitions[$term]['multiple'] = TRUE;
   }
+}
+
+/**
+ * Implements hook_entity_insert().
+ */
+function rest_oai_pmh_entity_insert(EntityInterface $entity) {
+  rest_oai_pmh_entity_alter($entity);
+}
+
+/**
+ * Implements hook_entity_update().
+ */
+function rest_oai_pmh_entity_update(EntityInterface $entity) {
+  rest_oai_pmh_entity_alter($entity);
+}
+
+function rest_oai_pmh_entity_alter($entity) {
+  $entity_type = $entity->getEntityTypeId();
+  if ($entity_type === 'view') {
+    $entity_id = $entity->id();
+    $d_args = [':view_id' => $entity_id . '%'];
+    $config = \Drupal::service('config.factory')->getEditable('rest_oai_pmh.settings');
+    $view_displays = $config->get('view_displays') ? : [];
+    $in_config = FALSE;
+    foreach ($view_displays as $view_display) {
+      list($view_id, $display_id) = explode(':', $view_display);
+      if ($view_id == $entity_id) {
+        $in_config = TRUE;
+        break;
+      }
+    }
+    if ($in_config) {
+      $displays = [];
+      foreach ($entity->get('display') as $display_id => $display) {
+        $displays[] = $entity_id . ':' . $display_id;
+      }
+      $deleted_displays = array_diff($view_displays, $displays);
+
+      if (count($deleted_displays)) {
+        foreach ($deleted_displays as $deleted_display) {
+          rest_oai_pmh_remove_sets_by_display_id($deleted_display);
+          unset($view_displays[$deleted_display]);
+        }
+        $config->set('view_displays', $view_displays)->save();
+      }
+      rest_oai_pmh_cache_views();
+    }
+  }
+  else {
+    // @todo see if we can act on cache invalidations for Views we expose
+    // instead of just rebuilding everything when an entity we expose to OAI is created/updated
+    $d_args = [':entity_type' => $entity_type];
+    $rebuild = \Drupal::database()->query("SELECT * FROM {rest_oai_pmh_record} r, {rest_oai_pmh_set} s
+      WHERE s.entity_type = :entity_type OR r.entity_type = :entity_type
+      LIMIT 1", $d_args)->fetchField();
+    if ($rebuild) {
+      rest_oai_pmh_cache_views();
+    }
+  }
+}
+
+/**
+ * Implements hook_entity_delete().
+ */
+function rest_oai_pmh_entity_delete(EntityInterface $entity) {
+  $entity_type = $entity->getEntityTypeId();
+  $entity_id = $entity->id();
+  if ($entity_type === 'view') {
+    $d_args = [':view_id' => $entity_id . '%'];
+    $view_displays = \Drupal::database()->query("SELECT DISTINCT(view_display) FROM {rest_oai_pmh_set} s
+      WHERE s.view_display LIKE :view_id", $d_args)->fetchCol();
+    foreach ($view_displays as $view_display) {
+      rest_oai_pmh_remove_sets_by_display_id($view_display);
+    }
+  }
+  else {
+    rest_oai_pmh_remove_record($entity_type, $entity_id);
+  }
+}
+
+function rest_oai_pmh_cache_views($view_displays = FALSE, $queue_name = 'rest_oai_pmh_views_cache_cron') {
+  $queue_factory = \Drupal::service('queue');
+  $queue = $queue_factory->get($queue_name);
+
+  // if no view_displays were passed
+  // get a list of all view displays set for OAI-PMH
+  if (!$view_displays) {
+    $config = \Drupal::config('rest_oai_pmh.settings');
+    $view_displays = $config->get('view_displays') ? : [];
+    // flush the queue since we're rebuilding everything
+    $queue->deleteQueue();
+  }
+
+  foreach ($view_displays as $view_display) {
+    list($view_id, $display_id) = explode(':', $view_display);
+
+    $view = \Drupal\views\Views::getView($view_id);
+    $view->setDisplay($display_id);
+
+    $data = [
+      'view_id' => $view_id,
+      'display_id' => $display_id,
+    ];
+    foreach ($view->display_handler->getHandlers('argument') as $contextual_filter) {
+      $definition = $contextual_filter->definition;
+      $entity_type = empty($definition['entity_type']) ? FALSE : $definition['entity_type'];
+      $table = $definition['table'];
+      $field = $definition['field_name'];
+      $column = $definition['field'];
+      // if the contextual filter is of an entity reference field
+      if ($entity_type && $column === $field . '_target_id') {
+        $contextual_filters = TRUE;
+        $entity_storage = \Drupal::entityTypeManager()->getStorage($definition['entity_type']);
+        $entity_table = $entity_storage->getBaseTable();
+        $field_table = $definition['entity_type'] . '__' . $field;
+        $id = $entity_storage->getEntityType()->getKey('id');
+        $condition = $column . ' = ' . $id;
+
+        $query = \Drupal::database()->select($entity_table, 'entity');
+        $query->innerJoin($field_table, 'f', $condition);
+        $query->addField('entity', $id);
+        $query->groupBy($id);
+        $ids = $query->execute()->fetchCol();
+        foreach ($ids as $id) {
+          $entity = $entity_storage->load($id);
+          if ($entity) {
+            $data['sets'][] = [
+              'arguments' => [$entity->id()],
+              'set_entity_type' => $definition['entity_type'],
+              'set_id' => $definition['entity_type'] . ':' . $entity->id(),
+              'set_label' => $entity->label(),
+              'view_display' => $view_display
+            ];
+          }
+        }
+      }
+    }
+
+    // if no contextual filter was found for this View
+    // use all the view results as a single set for OAI-PMH
+    // and make the set's name/id based off the View
+    if (empty($data['sets'])) {
+      $view_storage = \Drupal::entityTypeManager()->getStorage('view');
+      $view = $view_storage->load($view_id);
+      $display = $view->get('display');
+      $data['sets'][] = [
+        'arguments' => [],
+        'set_entity_type' => 'view',
+        'set_id' => 'view:' . $view_display,
+        'set_label' => $display[$display_id]['display_title'],
+        'view_display' => $view_display,
+      ];
+    }
+   $queue->createItem($data);
+  }
+}
+
+function rest_oai_pmh_remove_sets_by_display_id($view_display) {
+  $disabled_sets = \Drupal::database()->query('SELECT set_id FROM {rest_oai_pmh_set} WHERE view_display = :view_display', [':view_display' => $view_display])->fetchCol();
+  foreach ($disabled_sets as $disabled_set) {
+    rest_oai_pmh_remove_set($disabled_set);
+  }
+}
+
+function rest_oai_pmh_remove_set($set_id) {
+  // find all records in this set
+  $args = [':set_id' => $set_id];
+  $disabled_records = \Drupal::database()->query('SELECT entity_type, entity_id
+    FROM {rest_oai_pmh_member}
+    WHERE set_id = :set_id', $args);
+
+  foreach ($disabled_records as $disabled_record) {
+    rest_oai_pmh_remove_record($disabled_record->entity_type, $disabled_record->entity_id, $disabled_set);
+  }
+
+  // finally, delete the set
+  \Drupal::database()->delete('rest_oai_pmh_set')
+    ->condition('set_id', $set_id)
+    ->execute();
+}
+
+function rest_oai_pmh_remove_record($entity_type, $entity_id, $set_id = FALSE) {
+  if ($set_id) {
+    $args = [
+      ':set_id' => $set_id,
+      ':type' => $disabled_record->entity_type,
+      ':id' => $disabled_record->entity_id
+    ];
+    $set_id = \Drupal::database()->query('SELECT set_id FROM {rest_oai_pmh_member}
+      WHERE entity_type = :type
+        AND entity_id = :id
+        AND set_id <> :set_id', $args)->fetchField();
+  }
+
+  // if the record is not in any other sets, delete the record
+  if (!$set_id) {
+    \Drupal::database()->delete('rest_oai_pmh_record')
+      ->condition('entity_type', $entity_type)
+      ->condition('entity_id', $entity_id)
+      ->execute();
+  }
+  // remove this record's set associations
+  $query = \Drupal::database()->delete('rest_oai_pmh_member')
+    ->condition('entity_type', $entity_type)
+    ->condition('entity_id', $entity_id);
+
+  if ($set_id) {
+    $query->condition('set_id', $set_id);
+  }
+
+  $query->execute();
 }

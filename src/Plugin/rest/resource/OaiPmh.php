@@ -92,7 +92,7 @@ class OaiPmh extends ResourceBase {
       'repository_email',
       'repository_path',
       'expiration',
-      'earliest_date',
+      'support_sets',
     ];
     foreach ($fields as $field) {
       $this->{$field} = $config->get($field);
@@ -219,12 +219,15 @@ class OaiPmh extends ResourceBase {
   }
 
   protected function Identify() {
+    $earliest_date = \Drupal::database()->query('SELECT MIN(created)
+      FROM {rest_oai_pmh_record}')->fetchField();
+
     $this->response[$this->verb] = [
       'repositoryName' => $this->repository_name,
       'baseURL' => $this->currentRequest->getSchemeAndHttpHost() . $this->repository_path,
       'protocolVersion' => '2.0',
       'adminEmail' => $this->repository_email,
-      'earliestDatestamp' => gmdate(self::OAI_DATE_FORMAT, $this->earliest_date),
+      'earliestDatestamp' => gmdate(self::OAI_DATE_FORMAT, $earliest_date),
       'deletedRecord' => 'no',
       'granularity' => 'YYYY-MM-DDThh:mm:ssZ',
       'description' => [
@@ -253,41 +256,37 @@ class OaiPmh extends ResourceBase {
 
 
   protected function ListIdentifiers() {
-    $ids = $this->getRecordIds();
-    foreach ($ids as $id => $data) {
-      $identifier = $this->buildIdentifier($id);
+    $entities = $this->getRecordIds();
+    foreach ($entities as $entity) {
+      $identifier = $this->buildIdentifier($entity);
       $this->response[$this->verb]['header'][] = $this->getHeaderById($identifier);
     }
   }
 
   protected function ListRecords() {
-    $ids = $this->getRecordIds();
-    foreach ($ids as $id => $data) {
-      $identifier = $this->buildIdentifier($id);
-      $this->loadEntity($identifier);
+    $entities = $this->getRecordIds();
+    foreach ($entities as $entity) {
+      $this->oai_entity = $entity;
+      $identifier = $this->buildIdentifier($entity);
+      $this->loadEntity($identifier, TRUE);
       $this->response[$this->verb]['record'][] = $this->getRecordById($identifier);
     }
   }
 
   protected function ListSets() {
-    if (count($this->view_displays) == 0) {
+    if (count($this->view_displays) == 0 || empty($this->support_sets)) {
       $this->setError('noSetHierarchy', 'The repository does not support sets.');
       return;
     }
 
     $this->response[$this->verb] = [];
 
-    $view_storage = \Drupal::entityTypeManager()->getStorage('view');
-    foreach ($this->view_displays as $id) {
-      list($view_id, $display_id) = explode(':', $id);
-      $view = $view_storage->load($view_id);
-
-      // @todo check for contextual filter
-      $display = $view->get('display');
+    $sets = \Drupal::database()->query('SELECT set_id, label FROM {rest_oai_pmh_set}');
+    foreach ($sets as $set) {
       $this->response[$this->verb][] = [
         'set' => [
-          'setSpec' => 'view:' . $id,
-          'setName' => $display[$display_id]['display_title'],
+          'setSpec' => $set->set_id,
+          'setName' => $set->label,
         ]
       ];
     }
@@ -314,12 +313,16 @@ class OaiPmh extends ResourceBase {
       'identifier' => $identifier,
     ];
 
-    // @todo query entity type for changed trait
-    // $header['datestamp'] = gmdate(self::OAI_DATE_FORMAT, $this->entity->changed->value);
+    if ($this->entity->hasField('changed')) {
+      $header['datestamp'] = gmdate(self::OAI_DATE_FORMAT, $this->entity->changed->value);
+    }
 
-
-    // @todo find sets this entity belongs to
-
+    if (!empty($this->oai_entity) && !empty($this->support_sets)) {
+      $sets = explode(',', $this->oai_entity->sets);
+      foreach ($sets as $set) {
+        $header['setSpec'][] = $set;
+      }
+    }
     return $header;
   }
 
@@ -332,8 +335,6 @@ class OaiPmh extends ResourceBase {
         '@xsi:schemaLocation' => 'http://www.openarchives.org/OAI/2.0/oai_dc/ http://www.openarchives.org/OAI/2.0/oai_dc.xsd',
       ]
     ];
-
-    // @todo setSpec base on config
 
     // @see https://www.lullabot.com/articles/early-rendering-a-lesson-in-debugging-drupal-8
     // can't just call metatag_generate_entity_metatags() here since it renders node token values,
@@ -356,12 +357,6 @@ class OaiPmh extends ResourceBase {
     }
 
     return $metadata;
-  }
-
-  protected function getSetIds() {
-    $ids = [];
-
-    return $ids;
   }
 
   private function getRecordIds() {
@@ -387,8 +382,7 @@ class OaiPmh extends ResourceBase {
         $set = $token['set'];
         $from = $token['from'];
         $until = $token['until'];
-        $views_total = $token['views_total'];
-        $completeListSize = array_sum($this->view_total);
+        $completeListSize = $token['completeListSize'];
       }
       else {
         // if we found a token, and we're here, it means the token is expired
@@ -400,7 +394,7 @@ class OaiPmh extends ResourceBase {
       }
     }
     // if a set parameter was passed, but this OAI endpoint doesn't support sets, throw error
-    elseif (empty($this->view_displays) && $set) {
+    elseif ((empty($this->support_sets) || empty($this->view_displays)) && $set) {
       $this->setError('noSetHierarchy', 'The repository does not support sets.');
     }
     elseif (empty($metadata_prefix)) {
@@ -413,11 +407,17 @@ class OaiPmh extends ResourceBase {
       return;
     }
 
-
+    $query = \Drupal::database()->select('rest_oai_pmh_record', 'r');
+    $query->innerJoin('rest_oai_pmh_member', 'm', 'm.entity_id = r.entity_id AND m.entity_type = r.entity_type');
+    $query->innerJoin('rest_oai_pmh_set', 's', 's.set_id = m.set_id');
+    $query->fields('r', ['entity_id', 'entity_type']);
+    $query->addExpression('GROUP_CONCAT(m.set_id)', 'sets');
+    $query->groupBy('r.entity_type, r.entity_id');
     // if set ID was passed in URL, filter on that
     // otherwise filter on all sets as defined on set field
     if ($set) {
-      $this->set_nids = [$set];
+      $this->set_ids = [$set];
+      $query->condition('m.set_id', $set);
     }
 
     if ($from) {
@@ -428,48 +428,11 @@ class OaiPmh extends ResourceBase {
       $this->response['request']['@until'] = $until;
       $query->condition('changed', strtotime($until), '<=');
     }
-    $return = FALSE;
-    $offset = $cursor;
-    foreach ($this->view_displays as $set_view) {
-      // if we've already printed all the records from this View
-      // subtract the number of records in this View from the $offset value
-      // and proceed to the next View
-      if (!empty($views_total[$set_view]) && $offset >= $views_total[$set_view]) {
-        $offset -= $views_total[$set_view];
-        continue;
-      }
-
-      list($view_id, $display_id) = explode(':', $set_view);
-      $this->display_id = $display_id;
-
-      $this->view = Views::getView($view_id);
-
-      $this->view->setDisplay($display_id);
-      $this->view->get_total_rows = TRUE;
-      $this->view->setOffset($offset);
-      $this->view->element['#cache']['keys'][] = 'page:' . $cursor;
-
-      $context = new RenderContext();
-      $ids = \Drupal::service('renderer')->executeInRenderContext($context, function() {
-        return $this->view->executeDisplay($this->display_id);
-      });
-
-      $views_total[$set_view] = $this->view->total_rows;
-
-      // save the first result set from the first View executed
-      // since we're traversing all the Views on the first page load to get the completeListSize
-      //
-      if (empty($return)) {
-        $return = $ids;
-        $end = $this->view->getItemsPerPage();
-        if ($end > count($ids)) {
-          $end = count($ids);
-        }
-      }
-    }
 
     $this->response[$this->verb]['resumptionToken'] = [];
-    $completeListSize = array_sum($views_total);
+    if (empty($completeListSize)) {
+      $completeListSize = $query->countQuery()->execute()->fetchField();
+    }
     // if the total results are more than what was returned here, add a resumption token
     if ($completeListSize > ($cursor + $end)) {
       // set the expiration date per the admin settings
@@ -489,9 +452,9 @@ class OaiPmh extends ResourceBase {
         'cursor' => $cursor + $end,
         'expires' => $expires,
         'verb' => $this->response['request']['@verb'],
-        'from' =>$from,
+        'from' => $from,
         'until' => $until,
-        'views_total' => $views_total,
+        'completeListSize' => $completeListSize,
       ];
       $this->keyValueStore->set($this->next_token_id, $token);
 
@@ -501,33 +464,49 @@ class OaiPmh extends ResourceBase {
       $this->keyValueStore->set('next_token_id', $this->next_token_id);
     }
 
-    return $return;
+
+    $query->range($cursor, $end);
+    $entities = $query->execute();
+    return $entities;
   }
 
-  protected function buildIdentifier($entity_id) {
+  protected function buildIdentifier($entity) {
     $identifier = 'oai:';
     $identifier .= $this->currentRequest->getHttpHost();
     $identifier .= ':';
-    $identifier .= $this->view->getBaseEntityType()->id();
-    $identifier .= '-' . $entity_id;
+    $identifier .= $entity->entity_type;
+    $identifier .= '-' . $entity->entity_id;
 
     return $identifier;
   }
 
-  protected function loadEntity($identifier) {
+  protected function loadEntity($identifier, $skip_check = FALSE) {
+    $entity = FALSE;
     $components = explode(':', $identifier);
     $id = empty($components[2]) ? FALSE : $components[2];
     if ($id) {
       list($entity_type, $entity_id) = explode('-', $id);
 
       try {
-        $storage = \Drupal::entityTypeManager()->getStorage($entity_type);
-        $entity = $storage->load($entity_id);
-      } catch (Exception $e) {
-        return FALSE;
+        if (!$skip_check) {
+          $d_args = [
+            ':type' => $entity_type,
+            ':id' => $entity_id
+          ];
+          $in_oai_view = \Drupal::database()->query('SELECT GROUP_CONCAT(set_id) FROM {rest_oai_pmh_record} r
+            INNER JOIN {rest_oai_pmh_member} m ON m.entity_id = r.entity_id AND m.entity_type = r.entity_type
+            WHERE r.entity_id = :id
+              AND r.entity_type = :type
+            GROUP BY r.entity_id', $d_args)->fetchField();
+          $this->oai_entity = (object)['sets' => $in_oai_view];
+        }
+        if ($skip_check || $in_oai_view) {
+          $storage = \Drupal::entityTypeManager()->getStorage($entity_type);
+          $entity = $storage->load($entity_id);
+        }
       }
-
-      $this->entity = $entity && $entity->access('view') ? $entity : FALSE;
+      catch (Exception $e) {}
     }
+    $this->entity = $entity && $entity->access('view') ? $entity : FALSE;
   }
 }
