@@ -6,5 +6,4 @@ configure: rest_oai_pmh.rest_oai_pmh_settings_form
 package: 'Web services'
 dependencies:
   drupal: views
-  metatag: metatag_dc
   rest: rest

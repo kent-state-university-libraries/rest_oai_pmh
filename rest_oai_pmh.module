@@ -25,6 +25,110 @@ function rest_oai_pmh_help($route_name, RouteMatchInterface $route_match) {
 }
 
 /**
+ * Implements hook_theme().
+ */
+function rest_oai_pmh_theme() {
+  return [
+    'rest_oai_pmh_record' => [
+      'variables' => [
+        'entity_id' => NULL,
+        'entity_type' => NULL,
+        'entity' => NULL,
+        'metadata_prefix' => 'oai_dc',
+        'mapping_source' => \Drupal::moduleHandler()->moduleExists('metatag_dc') ? 'metatag_dc' : 'rdf',
+        'set' => FALSE,
+        'elements' => [],
+      ],
+    ],
+  ];
+}
+
+function template_preprocess_rest_oai_pmh_record(&$variables) {
+  // init the entity variables
+  if (!empty($variables['entity'])) {
+    $entity_id = $variables['entity']->id();
+    $entity_type = $variables['entity']->getEntityTypeId();
+  }
+  else {
+    $entity_id = empty($variables['entity_id']) ? FALSE : $variables['entity_id'];
+    $entity_type = empty($variables['entity_type']) ? FALSE : $variables['entity_type'];
+    if (!empty($entity_id)
+      && !empty($entity_type)
+      && empty($variables['entity'])) {
+      $storage = \Drupal::entityTypeManager()->getStorage($entity_type);
+      $variables['entity'] = $storage->load($entity_id);
+    }
+  }
+
+  $entity = $variables['entity'];
+  $mapping_source = empty($variables['mapping_source']) ? 'rdf' : $variables['mapping_source'];
+  $allowed_properties = rest_oai_pmh_get_allowed_properties($variables['metadata_prefix']);
+
+  // if Metatag is being used, get the elements from that module
+  if ($mapping_source === 'metatag_dc' && \Drupal::moduleHandler()->moduleExists('metatag_dc')) {
+    $metatags = metatag_generate_entity_metatags($entity);
+    // go through all the metatags ['#type' => 'tag'] render elements
+    foreach ($metatags as $term => $metatag) {
+      // metatag_dc stores terms ad dcterms.ELEMENT
+      // rename for oai_dc
+      $property = str_replace('dcterms.', 'dc:', $metatag['#attributes']['name']);
+      // see if it's a valid property
+      if (in_array($property, $allowed_properties)) {
+        // add all the values for this field so the twig template can print
+        $variables['elements'][$property][] = $metatag['#attributes']['content'];
+      }
+    }
+  }
+  // if RDF is being used, get the elements from that module
+  elseif ($mapping_source === 'rdf' && \Drupal::moduleHandler()->moduleExists('rdf')) {
+    $rdf_mapping = rdf_get_mapping($entity_type, $entity->bundle());
+    $fields = $entity->getFields();
+    // go through all this entity's fields
+    foreach ($fields as $field => $items) {
+      // if the person viewing doesn't have access to this field
+      // OR the field is empty, no need to go any further
+      if (!$items->access() || $items->isEmpty()) {
+        continue;
+      }
+
+      // see if there is an RDF mapping for this field
+      $field_mapping = $rdf_mapping->getPreparedFieldMapping($field);
+      if (!empty($field_mapping)) {
+
+        // see if the field is mapped to a property in this schema
+        // e.g oai_dc only will print Dublin Core tags
+        $element = FALSE;
+        foreach ($field_mapping['properties'] as $property) {
+          if (in_array($property, $allowed_properties)) {
+            $element = $property;
+            break;
+          }
+        }
+
+        // if $element is set, we have a valid property
+        if ($element) {
+          // add all the values for this field so the twig template can print
+          $variables['elements'][$element] = [];
+          foreach ($items as $item) {
+            $index = $item->mainPropertyName();
+            $value = $item->getValue()[$index];
+            if (!empty($field_mapping['datatype_callback'])) {
+              $callback = $field_mapping['datatype_callback']['callable'];
+              $arguments = isset($field_mapping['datatype_callback']['arguments']) ? $field_mapping['datatype_callback']['arguments'] : NULL;
+              $value = call_user_func($callback, $value, $arguments);
+            }
+            elseif ($index == 'target_id' && !empty($item->entity)) {
+              $value = $item->entity->label();
+            }
+            $variables['elements'][$element][] = $value;
+          }
+        }
+      }
+    }
+  }
+}
+
+/**
  * Implements hook_rest_resource_alter().
  */
 function rest_oai_pmh_rest_resource_alter(&$definitions) {
@@ -34,7 +138,6 @@ function rest_oai_pmh_rest_resource_alter(&$definitions) {
   	$definitions['oai_pmh']['uri_paths']['canonical'] = $path;
   }
 }
-
 
 /**
  * Implements hook_metatag_tags_alter().
@@ -256,4 +359,21 @@ function rest_oai_pmh_remove_record($entity_type, $entity_id, $set_id = FALSE) {
   }
 
   $query->execute();
+}
+
+function rest_oai_pmh_get_allowed_properties($metadata_prefix) {
+  $elements = [];
+  switch ($metadata_prefix) {
+    case 'oai_dc':
+      $elements = [
+        'dc:title',
+        'dc:description',
+        'dc:identifier',
+        'dc:extent',
+        'dc:type'
+      ];
+      break;
+  }
+
+  return $elements;
 }

@@ -93,6 +93,7 @@ class OaiPmh extends ResourceBase {
       'repository_path',
       'expiration',
       'support_sets',
+      'mapping_source',
     ];
     foreach ($fields as $field) {
       $this->{$field} = $config->get($field);
@@ -335,26 +336,24 @@ class OaiPmh extends ResourceBase {
         '@xsi:schemaLocation' => 'http://www.openarchives.org/OAI/2.0/oai_dc/ http://www.openarchives.org/OAI/2.0/oai_dc.xsd',
       ]
     ];
-
     // @see https://www.lullabot.com/articles/early-rendering-a-lesson-in-debugging-drupal-8
     // can't just call metatag_generate_entity_metatags() here since it renders node token values,
     // which in turn screwing up caching on the REST resource
     // @todo ensure caching is working properly here
     $context = new RenderContext();
-    $metatags = \Drupal::service('renderer')->executeInRenderContext($context, function() {
-      return metatag_generate_entity_metatags($this->entity);
-    });
+    $xml = \Drupal::service('renderer')->executeInRenderContext($context, function() {
+      $element = [
+        '#theme' => 'rest_oai_pmh_record',
+        '#entity_type' => $this->entity->getEntityTypeId(),
+        '#entity_id' => $this->entity->id(),
+        '#entity' => $this->entity,
+        '#mapping_source' => $this->mapping_source,
+        '#metadata_prefix' =>  $this->currentRequest->get('metadataPrefix'),
+      ];
 
-    // go through all the metatags ['#type' => 'tag'] render elements
-    // and find mappings for dublin core tags
-    foreach ($metatags as $term => $metatag) {
-      if (strpos($term, 'dcterms') !== FALSE) {
-        // metatag_dc stores terms ad dcterms.ELEMENT
-        // rename for oai_dc
-        $term = str_replace('dcterms.', 'dc:', $metatag['#attributes']['name']);
-        $metadata['oai_dc:dc'][$term][] = $metatag['#attributes']['content'];
-      }
-    }
+      return render($element);
+    });
+    $metadata['oai_dc:dc']['metadata-xml'] = trim($xml);
 
     return $metadata;
   }

@@ -39,6 +39,7 @@ class RestOaiPmhSettingsForm extends ConfigFormBase {
       '#type' => 'details',
       '#open' => TRUE,
       '#title' => $this->t('What to expose to OAI-PMH'),
+      '#attributes' => ['style' => 'max-width: 750px'],
       '#description' => $this->t('<p>Select which Views with an Entity Reference display will be exposed to OAI-PMH.</p>
         <p>Each View will be represented as a set in the OAI-PMH endpoint, except for those Views that contain a contextual filter to an entity reference. If the View has one of these contextual filters, the possible values in the referenced field will be used as the sets.</p>'),
     ];
@@ -67,6 +68,39 @@ class RestOaiPmhSettingsForm extends ConfigFormBase {
       '#title' => $this->t('Support Sets'),
       '#description' => $this->t('If you want all the Views selected to be treated a single set, and simply expose all the records, you can uncheck this box to have your OAI-PMH endpoint not support sets.'),
       '#default_value' => is_null($support_sets) ? TRUE : $support_sets,
+    ];
+
+    $form['mapping'] = [
+      '#type' => 'details',
+      '#open' => TRUE,
+      '#title' => $this->t('Metadata Mapping'),
+      '#attributes' => ['style' => 'max-width: 750px'],
+      '#description' => $this->t('<p>Select how the entities that are exposed to OAI-PMH will be mapped to Dublin Core and printed on your OAI-PMH endpoint. There are a few supported options:</p>
+        <p>
+        <ul>
+          <li><strong>Drupal Core RDF Module</strong> if you have Drupal\'s core RDF module enabled, and have an RDF mapping with some Dublin Core elements for your entitities, that field mapping will be used<br><br></li>
+
+          <li><strong>Metatag Dublin Core Module</strong> If you have the <a href="http://drupal.org/project/metatag">Metatag Dublin Core</a> module enabled, and have some Dublin Core properites defined for the entities exposed to OAI-PMH, that mapping will be used.<br><br></li>
+
+          <li><strong>Custom</strong> with a custom module or theme, you can implement<br><code>hook_preprocess_rest_oai_pmh_record</code>,<br>and/or override the <code>rest-oai-pmh-record.html.twig</code> template file</li>
+        </ul></p>'),
+    ];
+    $options = [];
+    if (\Drupal::moduleHandler()->moduleExists('metatag_dc')) {
+      $options['rdf'] = $this->t('Drupal Core RDF Module');
+    }
+    if (\Drupal::moduleHandler()->moduleExists('metatag_dc')) {
+      $options['metatag_dc'] = $this->t('Metatag Dublin Core Module');
+    }
+    $options += [
+      'custom' => $this->t('Custom'),
+    ];
+    $form['mapping']['mapping_source'] = [
+      '#type' => 'select',
+      '#title' => $this->t('Metadata Mapping Source'),
+      '#options' => $options,
+      '#required' => TRUE,
+      '#default_value' => $config->get('mapping_source') ? : NULL,
     ];
 
     $name = $config->get('repository_name');
@@ -162,6 +196,7 @@ class RestOaiPmhSettingsForm extends ConfigFormBase {
 
     $config->set('view_displays', $view_displays)
       ->set('support_sets', $form_state->getValue('support_sets'))
+      ->set('mapping_source', $form_state->getValue('mapping_source'))
       ->set('repository_name', $form_state->getValue('repository_name'))
       ->set('repository_email', $form_state->getValue('repository_email'))
       ->set('expiration', $form_state->getValue('expiration'))

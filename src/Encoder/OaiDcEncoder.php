@@ -39,7 +39,7 @@ class OaiDcEncoder extends XmlEncoder {
 
     /**
      * @todo find better approach to represent XML nodes that are string values but contain @attributes with PHP arrays
-     * 
+     *
      * e.g.
      * $response = [
      *   'error' => [
@@ -54,14 +54,18 @@ class OaiDcEncoder extends XmlEncoder {
      * </error>
      *
      * With Symfony's XML Encoder can not find any clear documentation whether this is possible or not.
-     * So here we're just looking for a node we specially keyed for this case and removing those nodes. 
+     * So here we're just looking for a node we specially keyed for this case and removing those nodes.
      * Of course this is not ideal.
      */
     $search = [
+      '<metadata-xml><![CDATA[',
+      ']]></metadata-xml>',
       '<oai-dc-string>',
       '</oai-dc-string>',
     ];
     $replace = [
+      '',
+      '',
       '',
       '',
     ];
