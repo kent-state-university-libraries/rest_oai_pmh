@@ -84,6 +84,7 @@ class OaiPmh extends ResourceBase {
     $this->currentRequest = $currentRequest;
 
     // read the config settings for this endpoint
+    // and set some properties for this class from the config
     $config = \Drupal::config('rest_oai_pmh.settings');
     $fields = [
       'bundle',
@@ -99,10 +100,13 @@ class OaiPmh extends ResourceBase {
       $this->{$field} = $config->get($field);
     }
 
+    // make sure the path is always set
+    // if we don't have one, resort to default value
     if (!$this->repository_path) {
       $this->repository_path = self::OAI_DEFAULT_PATH;
     }
 
+    // create a key/value store for resumption tokens
     $this->keyValueStore = \Drupal::keyValue('rest_oai_pmh.resumption_token');
     $this->next_token_id = $this->keyValueStore
           ->get('next_token_id');
@@ -136,15 +140,8 @@ class OaiPmh extends ResourceBase {
    *   Throws exception expected.
    */
   public function get() {
-
-    // You must to implement the logic of your REST Resource here.
-    // Use current user after pass authentication to validate access.
-    if (!$this->currentUser->hasPermission('access content')) {
-      throw new AccessDeniedHttpException();
-    }
-
+    // init a basic response used by all verbs
     $base_oai_url = $this->currentRequest->getSchemeAndHttpHost() . $this->repository_path;
-
     $this->response = [
       '@xmlns' => 'http://www.openarchives.org/OAI/2.0/',
       '@xmlns:xsi' => 'http://www.w3.org/2001/XMLSchema-instance',
@@ -155,6 +152,7 @@ class OaiPmh extends ResourceBase {
          'oai-dc-string' => $base_oai_url
        ],
     ];
+
     $verb = $this->currentRequest->get('verb');
     $set_id = $this->currentRequest->get('set');
     $verbs = [
@@ -165,14 +163,16 @@ class OaiPmh extends ResourceBase {
       'ListRecords',
       'ListSets'
     ];
+    // make sure a valid verb was passed in as a GET parameter
+    // if so, call the respective function implemented in this class
     if (in_array($verb, $verbs)) {
       $this->response['request']['@verb'] = $this->verb = $verb;
       $this->{$verb}();
     }
+    // if not a valid verb, print the error message
     else {
      $this->setError('badVerb', 'Value of the verb argument is not a legal OAI-PMH verb, the verb argument is missing, or the verb argument is repeated.');
     }
-
 
     $response = new ResourceResponse($this->response, 200);
 
@@ -195,6 +195,8 @@ class OaiPmh extends ResourceBase {
 
     $this->loadEntity($identifier);
 
+    // check to ensure the identifier is valid
+    // and an entity was loaded
     $components = explode(':', $identifier);
     if (count($components) != 3 ||
       $components[0] !== 'oai' ||
@@ -202,6 +204,7 @@ class OaiPmh extends ResourceBase {
       empty($this->entity)) {
       $this->setError('idDoesNotExist', 'The value of the identifier argument is unknown or illegal in this repository.');
     }
+
 
     $metadata_prefix = $this->currentRequest->get('metadataPrefix');
     if (empty($metadata_prefix)) {
@@ -211,15 +214,19 @@ class OaiPmh extends ResourceBase {
       $this->setError('cannotDisseminateFormat', 'The metadata format identified by the value given for the metadataPrefix argument is not supported by the item or by the repository.');
     }
 
+    // check if an error was thrown
     if ($this->error) {
+      // per OAI specs, remove the verb from the response
       unset($this->response['request']['@verb']);
-      return;
     }
-
-    $this->response[$this->verb]['record'] = $this->getRecordById($identifier);
+    // if no error, print the record
+    else {
+      $this->response[$this->verb]['record'] = $this->getRecordById($identifier);
+    }
   }
 
   protected function Identify() {
+    // query our table to see the oldest entity exposed to OAI
     $earliest_date = \Drupal::database()->query('SELECT MIN(created)
       FROM {rest_oai_pmh_record}')->fetchField();
 
@@ -275,6 +282,7 @@ class OaiPmh extends ResourceBase {
   }
 
   protected function ListSets() {
+    // throw an error if no Views set for OAI, or sets are explicitly not supported
     if (count($this->view_displays) == 0 || empty($this->support_sets)) {
       $this->setError('noSetHierarchy', 'The repository does not support sets.');
       return;
@@ -293,6 +301,12 @@ class OaiPmh extends ResourceBase {
     }
   }
 
+  /**
+   * Helper function.
+   *
+   * A lot of different scenarios can cause an error based on GET parameters supplied
+   * so have a standard convention to record these errors and print them in XML
+   */
   protected function setError($code, $string) {
     $this->response['error'][] = [
       '@code' => $code,
@@ -314,10 +328,14 @@ class OaiPmh extends ResourceBase {
       'identifier' => $identifier,
     ];
 
+    // if the entity being exposed to OAI has a changed field
+    // print that in the header
     if ($this->entity->hasField('changed')) {
       $header['datestamp'] = gmdate(self::OAI_DATE_FORMAT, $this->entity->changed->value);
     }
 
+    // if sets are supported
+    // print the sets this record belongs to
     if (!empty($this->oai_entity) && !empty($this->support_sets)) {
       $sets = explode(',', $this->oai_entity->sets);
       foreach ($sets as $set) {
@@ -366,7 +384,6 @@ class OaiPmh extends ResourceBase {
     $from = $this->currentRequest->get('from');
     $until = $this->currentRequest->get('until');
     $cursor = 0;
-    $end = 10;
     $completeListSize = 0;
     $views_total = [];
     // if a resumption token was passed in the URL, try to find it in the key store
@@ -405,13 +422,20 @@ class OaiPmh extends ResourceBase {
     if ($this->error) {
       return;
     }
+    else {
+      // our {rest_oai_pmh_set} stores the pager information for the Views exposed to OAI
+      // to play it safe, make the limit // max results returned be the smallest pager size for all the Views exposed to OAI
+      $end = \Drupal::database()->query('SELECT MIN(`limit`) FROM {rest_oai_pmh_set}')->fetchField();
+    }
 
+    // query our {rest_oai_pmh_*} tables to get records that are exposed to OAI
     $query = \Drupal::database()->select('rest_oai_pmh_record', 'r');
     $query->innerJoin('rest_oai_pmh_member', 'm', 'm.entity_id = r.entity_id AND m.entity_type = r.entity_type');
     $query->innerJoin('rest_oai_pmh_set', 's', 's.set_id = m.set_id');
     $query->fields('r', ['entity_id', 'entity_type']);
     $query->addExpression('GROUP_CONCAT(m.set_id)', 'sets');
     $query->groupBy('r.entity_type, r.entity_id');
+
     // if set ID was passed in URL, filter on that
     // otherwise filter on all sets as defined on set field
     if ($set) {
@@ -419,19 +443,25 @@ class OaiPmh extends ResourceBase {
       $query->condition('m.set_id', $set);
     }
 
+    // if from was passed as  GET parameter, filter on that
     if ($from) {
       $this->response['request']['@from'] = $from;
       $query->condition('changed', strtotime($from), '>=');
     }
+    // if until was passed as  GET parameter, filter on that
     if ($until) {
       $this->response['request']['@until'] = $until;
       $query->condition('changed', strtotime($until), '<=');
     }
 
-    $this->response[$this->verb]['resumptionToken'] = [];
+    // if we haven't checked the complete list size yet (i.e. this isn't a call from a resumption token)
+    // get the complete list size for this request
     if (empty($completeListSize)) {
       $completeListSize = $query->countQuery()->execute()->fetchField();
     }
+
+    $this->response[$this->verb]['resumptionToken'] = [];
+
     // if the total results are more than what was returned here, add a resumption token
     if ($completeListSize > ($cursor + $end)) {
       // set the expiration date per the admin settings
@@ -466,9 +496,13 @@ class OaiPmh extends ResourceBase {
 
     $query->range($cursor, $end);
     $entities = $query->execute();
+
     return $entities;
   }
 
+  /**
+   * Helper function. Create an OAI identifier for the given entity
+   */
   protected function buildIdentifier($entity) {
     $identifier = 'oai:';
     $identifier .= $this->currentRequest->getHttpHost();
@@ -479,6 +513,13 @@ class OaiPmh extends ResourceBase {
     return $identifier;
   }
 
+  /**
+   * Helper function. Load an entity to be printed in OAI endpoint
+   *
+   *
+   * @param $identifier - string of OAI identifier for a record
+   * @param $skip_check - boolean on whether to ensure entity being passed in $identifier is indeed exposed to OAI. Some OAI verbs, like ListRecords, are querying only the entities that are indeed exposed to OAI. Other verbs, like GetRecord, get an identifier passed and are asked for the metadata for that record. So need to check that the entity is indeed in OAI
+   */
   protected function loadEntity($identifier, $skip_check = FALSE) {
     $entity = FALSE;
     $components = explode(':', $identifier);
@@ -487,7 +528,16 @@ class OaiPmh extends ResourceBase {
       list($entity_type, $entity_id) = explode('-', $id);
 
       try {
+        // if we need to check whether the entity is in OAI, do so
+        // we don't do this for ListRecords b/c we already know the entity is in OAI since we queried it from the table we're checking against
+        // but for GetRecord, the user is passing the identifier, so we need to ensure it's legit
+        // basically just a performance enhancement to not always check
         if (!$skip_check) {
+
+          // fetch all sets the record belongs to
+          // even if sets aren't supported by OAI, our system still stores the set information
+          // so it's a reliable method to check
+          // PLUS we get all the sets the record belongs to to print in <header>
           $d_args = [
             ':type' => $entity_type,
             ':id' => $entity_id
@@ -497,8 +547,13 @@ class OaiPmh extends ResourceBase {
             WHERE r.entity_id = :id
               AND r.entity_type = :type
             GROUP BY r.entity_id', $d_args)->fetchField();
+
+          // store the set membership from out table so we can print set membership in <header>
           $this->oai_entity = (object)['sets' => $in_oai_view];
         }
+
+        // if we're skipping the OAI check OR we didn't skip the check, and the record is in OAI
+        // load the entity
         if ($skip_check || $in_oai_view) {
           $storage = \Drupal::entityTypeManager()->getStorage($entity_type);
           $entity = $storage->load($entity_id);
@@ -506,6 +561,9 @@ class OaiPmh extends ResourceBase {
       }
       catch (Exception $e) {}
     }
+
+    // make sure the entity was loaded properly
+    // AND the person viewing has access
     $this->entity = $entity && $entity->access('view') ? $entity : FALSE;
   }
 }

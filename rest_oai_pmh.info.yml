@@ -1,9 +1,9 @@
 name: 'REST OAI-PMH'
 type: module
-description: 'Exposes schema.org dublin core mappings in an OAI-PMH endpoint'
+description: 'Exposes entities as Dublin Core in an OAI-PMH endpoint using Views, REST, and a metadata mapping module of your choice'
 core: 8.x
 configure: rest_oai_pmh.rest_oai_pmh_settings_form
 package: 'Web services'
 dependencies:
   drupal: views
-  rest: rest
+  drupal: rest

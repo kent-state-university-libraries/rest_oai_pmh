@@ -49,6 +49,7 @@ function template_preprocess_rest_oai_pmh_record(&$variables) {
     $entity_id = $variables['entity']->id();
     $entity_type = $variables['entity']->getEntityTypeId();
   }
+  // if entity wasn't passed, load the entity based on other variables
   else {
     $entity_id = empty($variables['entity_id']) ? FALSE : $variables['entity_id'];
     $entity_type = empty($variables['entity_type']) ? FALSE : $variables['entity_type'];
@@ -64,7 +65,7 @@ function template_preprocess_rest_oai_pmh_record(&$variables) {
   $mapping_source = empty($variables['mapping_source']) ? 'rdf' : $variables['mapping_source'];
   $allowed_properties = rest_oai_pmh_get_allowed_properties($variables['metadata_prefix']);
 
-  // if Metatag is being used, get the elements from that module
+  // if Metatag is being used for metadata mapping, get the elements from that module
   if ($mapping_source === 'metatag_dc' && \Drupal::moduleHandler()->moduleExists('metatag_dc')) {
     $metatags = metatag_generate_entity_metatags($entity);
     // go through all the metatags ['#type' => 'tag'] render elements
@@ -79,7 +80,7 @@ function template_preprocess_rest_oai_pmh_record(&$variables) {
       }
     }
   }
-  // if RDF is being used, get the elements from that module
+  // if RDF is being used for metadata mapping, get the elements from that module
   elseif ($mapping_source === 'rdf' && \Drupal::moduleHandler()->moduleExists('rdf')) {
     $rdf_mapping = rdf_get_mapping($entity_type, $entity->bundle());
     $fields = $entity->getFields();
@@ -164,34 +165,43 @@ function rest_oai_pmh_entity_update(EntityInterface $entity) {
   rest_oai_pmh_entity_alter($entity);
 }
 
+/**
+ * Helper function. Act when an entity is added/updated in Drupal
+ */
 function rest_oai_pmh_entity_alter($entity) {
   $entity_type = $entity->getEntityTypeId();
+  // if a View is being added/updated
   if ($entity_type === 'view') {
+
+    // check if the View has a display that's exposed in OAI
     $entity_id = $entity->id();
     $d_args = [':view_id' => $entity_id . '%'];
     $config = \Drupal::service('config.factory')->getEditable('rest_oai_pmh.settings');
-    $view_displays = $config->get('view_displays') ? : [];
+    $oai_view_displays = $config->get('view_displays') ? : [];
     $in_config = FALSE;
-    foreach ($view_displays as $view_display) {
+    // go through
+    foreach ($oai_view_displays as $view_display) {
       list($view_id, $display_id) = explode(':', $view_display);
       if ($view_id == $entity_id) {
         $in_config = TRUE;
         break;
       }
     }
+
+    // if there is a display in OAI
     if ($in_config) {
       $displays = [];
       foreach ($entity->get('display') as $display_id => $display) {
         $displays[] = $entity_id . ':' . $display_id;
       }
-      $deleted_displays = array_diff($view_displays, $displays);
+      $deleted_displays = array_diff($oai_view_displays, $displays);
 
       if (count($deleted_displays)) {
         foreach ($deleted_displays as $deleted_display) {
           rest_oai_pmh_remove_sets_by_display_id($deleted_display);
-          unset($view_displays[$deleted_display]);
+          unset($oai_view_displays[$deleted_display]);
         }
-        $config->set('view_displays', $view_displays)->save();
+        $config->set('view_displays', $oai_view_displays)->save();
       }
       rest_oai_pmh_cache_views();
     }
@@ -215,20 +225,32 @@ function rest_oai_pmh_entity_alter($entity) {
 function rest_oai_pmh_entity_delete(EntityInterface $entity) {
   $entity_type = $entity->getEntityTypeId();
   $entity_id = $entity->id();
+
+  // if a View is being deleted
   if ($entity_type === 'view') {
+    // check if there are any sets in OAI with a display from this View
     $d_args = [':view_id' => $entity_id . '%'];
     $view_displays = \Drupal::database()->query("SELECT DISTINCT(view_display) FROM {rest_oai_pmh_set} s
       WHERE s.view_display LIKE :view_id", $d_args)->fetchCol();
+    // for any set found, delete it
     foreach ($view_displays as $view_display) {
       rest_oai_pmh_remove_sets_by_display_id($view_display);
     }
   }
+  // for any other entity, delete all sets/records for the entity
   else {
     rest_oai_pmh_remove_record($entity_type, $entity_id);
+    $set_id = $entity_type . ':' . $entity_id;
+    rest_oai_pmh_remove_sets_by_display_id($set_id);
   }
 }
 
+/**
+ * Helper function. Create QueueWorker to execute all, or a specific set, of Views that will populate which entities are exposed to OAI
+ */
+
 function rest_oai_pmh_cache_views($view_displays = FALSE, $queue_name = 'rest_oai_pmh_views_cache_cron') {
+  // get the queue factory
   $queue_factory = \Drupal::service('queue');
   $queue = $queue_factory->get($queue_name);
 
@@ -251,25 +273,43 @@ function rest_oai_pmh_cache_views($view_displays = FALSE, $queue_name = 'rest_oa
       'view_id' => $view_id,
       'display_id' => $display_id,
     ];
+    // go through all the contextual filters for this View display
     foreach ($view->display_handler->getHandlers('argument') as $contextual_filter) {
       $definition = $contextual_filter->definition;
+
+      // look at the definition and see if it looks like an entity reference field
       $entity_type = empty($definition['entity_type']) ? FALSE : $definition['entity_type'];
       $table = $definition['table'];
       $field = $definition['field_name'];
       $column = $definition['field'];
+
       // if the contextual filter is of an entity reference field
       if ($entity_type && $column === $field . '_target_id') {
-        $contextual_filters = TRUE;
+        // see what sort of entity is exposed
+        // and see what table it's stored in (e.g. $entity = 'node' if $definition['entity_type'] === 'node')
         $entity_storage = \Drupal::entityTypeManager()->getStorage($definition['entity_type']);
         $entity_table = $entity_storage->getBaseTable();
+
+        // get the table where the field data for the entity reference field is stored
+        // e.g. if the field name is "field_member" and entity_type is "node"
+        // $field_table = 'node__field_member';
         $field_table = $definition['entity_type'] . '__' . $field;
+
+        // get the name of the database column that stores the entity's key property
         $id = $entity_storage->getEntityType()->getKey('id');
+        // this is what we'll perform our JOIN on
+        // $column is the field that the contextual reference queries on
+        // so for field_member $column = 'field_member_target_id';
         $condition = $column . ' = ' . $id;
 
+        // find all entities that had at least one record that references the entity
+        // in the field defined on the contextual filter
         $query = \Drupal::database()->select($entity_table, 'entity');
         $query->innerJoin($field_table, 'f', $condition);
         $query->addField('entity', $id);
         $query->groupBy($id);
+
+        // make each entity found that's referenced a set in OAI
         $ids = $query->execute()->fetchCol();
         foreach ($ids as $id) {
           $entity = $entity_storage->load($id);
@@ -287,7 +327,7 @@ function rest_oai_pmh_cache_views($view_displays = FALSE, $queue_name = 'rest_oa
     }
 
     // if no contextual filter was found for this View
-    // use all the view results as a single set for OAI-PMH
+    // use all the View results as a single set for OAI-PMH
     // and make the set's name/id based off the View
     if (empty($data['sets'])) {
       $view_storage = \Drupal::entityTypeManager()->getStorage('view');
@@ -301,17 +341,27 @@ function rest_oai_pmh_cache_views($view_displays = FALSE, $queue_name = 'rest_oa
         'view_display' => $view_display,
       ];
     }
-   $queue->createItem($data);
+
+    // queue the information we found to be processed by the queue
+    $queue->createItem($data);
   }
 }
 
+/**
+ * Helper function. Remove all sets/records exposed by a specific View display
+ */
 function rest_oai_pmh_remove_sets_by_display_id($view_display) {
-  $disabled_sets = \Drupal::database()->query('SELECT set_id FROM {rest_oai_pmh_set} WHERE view_display = :view_display', [':view_display' => $view_display])->fetchCol();
+  $disabled_sets = \Drupal::database()->query('SELECT set_id FROM {rest_oai_pmh_set}
+    WHERE view_display = :view_display', [':view_display' => $view_display])->fetchCol();
   foreach ($disabled_sets as $disabled_set) {
     rest_oai_pmh_remove_set($disabled_set);
   }
 }
 
+/**
+ * Helper function. Delete a set from OAI
+ * @todo queue this?
+ */
 function rest_oai_pmh_remove_set($set_id) {
   // find all records in this set
   $args = [':set_id' => $set_id];
@@ -329,12 +379,16 @@ function rest_oai_pmh_remove_set($set_id) {
     ->execute();
 }
 
+/**
+ * Helper function. Delete a record from OAI
+ * @todo queue this?
+ */
 function rest_oai_pmh_remove_record($entity_type, $entity_id, $set_id = FALSE) {
   if ($set_id) {
     $args = [
       ':set_id' => $set_id,
-      ':type' => $disabled_record->entity_type,
-      ':id' => $disabled_record->entity_id
+      ':type' => $entity_type,
+      ':id' => $entity_id
     ];
     $set_id = \Drupal::database()->query('SELECT set_id FROM {rest_oai_pmh_member}
       WHERE entity_type = :type
@@ -361,6 +415,12 @@ function rest_oai_pmh_remove_record($entity_type, $entity_id, $set_id = FALSE) {
   $query->execute();
 }
 
+/**
+ * Helper function.
+ *
+ * Return what properties we're looking for in metadata mapping modules given an OAI metadata prefix
+ */
+
 function rest_oai_pmh_get_allowed_properties($metadata_prefix) {
   $elements = [];
   switch ($metadata_prefix) {
@@ -382,7 +442,7 @@ function rest_oai_pmh_get_allowed_properties($metadata_prefix) {
         'dc:title',
         'dc:type',
 
-        // advanced
+        // plus DCMI
         'dc:abstract',
         'dc:accessRights',
         'dc:accrualMethod',
