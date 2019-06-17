@@ -2,16 +2,89 @@
 
 namespace Drupal\rest_oai_pmh\Form;
 
+use Symfony\Component\DependencyInjection\ContainerInterface;
+use Drupal\Core\Config\ConfigFactoryInterface;
 use Drupal\Core\Form\ConfigFormBase;
 use Drupal\Core\Form\FormStateInterface;
-use Drupal\Core\Entity\ContentEntityType;
 use Drupal\rest_oai_pmh\Plugin\rest\resource\OaiPmh;
 use Drupal\views\Views;
+use Drupal\Core\Entity\EntityTypeManagerInterface;
+use Drupal\Core\Extension\ModuleHandlerInterface;
+use Drupal\Core\Path\PathValidatorInterface;
+use Drupal\Core\Cache\CacheBackendInterface;
+use Drupal\Core\ProxyClass\Routing\RouteBuilder;
 
 /**
  * Class RestOaiPmhSettingsForm.
  */
 class RestOaiPmhSettingsForm extends ConfigFormBase {
+
+
+  /**
+   * The entity type manager.
+   *
+   * @var \Drupal\Core\Entity\EntityTypeManagerInterface
+   */
+  protected $entityTypeManager;
+
+  /**
+   * The module handler service.
+   *
+   * @var \Drupal\Core\Extension\ModuleHandlerInterface
+   */
+  protected $moduleHandler;
+
+  /**
+   * The path validator service.
+   *
+   * @var \Drupal\Core\Path\PathValidatorInterface
+   */
+  protected $pathValidator;
+
+
+  /**
+   * The cache discovery service.
+   *
+   * @var \Drupal\Core\Cache\CacheBackendInterface
+   */
+  protected $cacheDiscovery;
+
+  /**
+   * The router builder service.
+   *
+   * @var \Drupal\Core\ProxyClass\Routing\RouteBuilder
+   */
+  protected $routerBuilder;
+
+  /**
+   * Constructs a \Drupal\system\ConfigFormBase object.
+   *
+   * @param \Drupal\Core\Config\ConfigFactoryInterface $config_factory
+   *   The factory for configuration objects.
+   */
+  public function __construct(ConfigFactoryInterface $config_factory, EntityTypeManagerInterface $entity_type_manager, ModuleHandlerInterface $module_handler, PathValidatorInterface $path_validator, CacheBackendInterface $cache_discovery, RouteBuilder $router_builder) {
+    parent::__construct($config_factory);
+
+    $this->entityTypeManager = $entity_type_manager;
+    $this->moduleHandler = $module_handler;
+    $this->pathValidator = $path_validator;
+    $this->cacheDiscovery = $cache_discovery;
+    $this->routerBuilder = $router_builder;
+  }
+
+  /**
+   * {@inheritdoc}
+   */
+  public static function create(ContainerInterface $container) {
+    return new static(
+      $container->get('config.factory'),
+      $container->get('entity_type.manager'),
+      $container->get('module_handler'),
+      $container->get('path.validator'),
+      $container->get('cache.discovery'),
+      $container->get('router.builder')
+    );
+  }
 
   /**
    * {@inheritdoc}
@@ -44,9 +117,8 @@ class RestOaiPmhSettingsForm extends ConfigFormBase {
         <p>Each View will be represented as a set in the OAI-PMH endpoint, except for those Views that contain a contextual filter to an entity reference. If the View has one of these contextual filters, the possible values in the referenced field will be used as the sets.</p>'),
     ];
 
-
     $displays = Views::getApplicableViews('entity_reference_display');
-    $view_storage = \Drupal::entityTypeManager()->getStorage('view');
+    $view_storage = $this->entityTypeManager->getStorage('view');
     $view_displays = [];
     foreach ($displays as $data) {
       list($view_id, $display_id) = $data;
@@ -86,10 +158,10 @@ class RestOaiPmhSettingsForm extends ConfigFormBase {
         </ul></p>'),
     ];
     $options = [];
-    if (\Drupal::moduleHandler()->moduleExists('metatag_dc')) {
+    if ($this->moduleHandler->moduleExists('metatag_dc')) {
       $options['rdf'] = $this->t('Drupal Core RDF Module');
     }
-    if (\Drupal::moduleHandler()->moduleExists('metatag_dc')) {
+    if ($this->moduleHandler->moduleExists('metatag_dc')) {
       $options['metatag_dc'] = $this->t('Metatag Dublin Core Module');
     }
     $options += [
@@ -107,7 +179,7 @@ class RestOaiPmhSettingsForm extends ConfigFormBase {
     $form['repository_name'] = [
       '#type' => 'textfield',
       '#title' => $this->t('Repository Name'),
-      '#default_value' => $name ? : \Drupal::config('system.site')->get('name'),
+      '#default_value' => $name ? :  $this->config('system.site')->get('name'),
       '#required' => TRUE,
     ];
 
@@ -115,10 +187,9 @@ class RestOaiPmhSettingsForm extends ConfigFormBase {
     $form['repository_email'] = [
       '#type' => 'email',
       '#title' => $this->t('Repository Admin E-Mail'),
-      '#default_value' => $email ? : \Drupal::config('system.site')->get('mail'),
+      '#default_value' => $email ? : $this->config('system.site')->get('mail'),
       '#required' => TRUE,
     ];
-
 
     $path = $config->get('repository_path');
     $form['repository_path'] = [
@@ -148,24 +219,24 @@ class RestOaiPmhSettingsForm extends ConfigFormBase {
     $submitted_path = $form_state->getValue('repository_path');
     $submitted_path = "/" . trim($submitted_path, "\r\n\t /");
     $old_path = $this->config('rest_oai_pmh.settings')->get('repository_path');
-    // if they haven't set a path before, make it the default
+    // If they haven't set a path before, make it the default.
     if (!$old_path) {
       $old_path = OaiPmh::OAI_DEFAULT_PATH;
     }
 
-    // if the admin is changing the path
-    // make sure the path they're changing it to doesn't already exist
+    // If the admin is changing the path
+    // make sure the path they're changing it to doesn't already exist.
     if ($submitted_path !== OaiPmh::OAI_DEFAULT_PATH &&
-      \Drupal::service('path.validator')->getUrlIfValidWithoutAccessCheck($submitted_path)) {
+      $this->pathValidator->getUrlIfValidWithoutAccessCheck($submitted_path)) {
       $form_state->setErrorByName('repository_path', $this->t('The path you attempted to change to already exists.'));
     }
-    // if the admin changed the OAI endpoint path, invalidate cache and rebuild routes
+    // If the admin changed the OAI endpoint path, invalidate cache and rebuild routes.
     elseif ($submitted_path !== $old_path) {
       $this->updateRestEndpointPath($submitted_path);
 
-      // check that the next path exists
-      // if it doesn't, revert to what the path was before and throw an error
-      if (!\Drupal::service('path.validator')->getUrlIfValidWithoutAccessCheck($submitted_path)) {
+      // Check that the next path exists
+      // if it doesn't, revert to what the path was before and throw an error.
+      if (!$this->pathValidator->getUrlIfValidWithoutAccessCheck($submitted_path)) {
         $this->updateRestEndpointPath($old_path);
         $form_state->setErrorByName('repository_path', $this->t('Could not save the path you provided. Please check that the path does not contain any invalid characters.'));
       }
@@ -205,14 +276,18 @@ class RestOaiPmhSettingsForm extends ConfigFormBase {
     rest_oai_pmh_cache_views($rebuild_views);
   }
 
+  /**
+   *
+   */
   protected function updateRestEndpointPath($path) {
     $this->config('rest_oai_pmh.settings')
       ->set('repository_path', $path)
       ->save();
 
-    // when updating the REST endpoint's path
-    // the route path needs cleared to enable the new path
-    \Drupal::getContainer()->get('cache.discovery')->delete('rest_plugins');
-    \Drupal::service('router.builder')->rebuild();
+    // When updating the REST endpoint's path
+    // the route path needs cleared to enable the new path.
+    $this->cacheDiscovery->delete('rest_plugins');
+    $this->routerBuilder->rebuild();
   }
+
 }
