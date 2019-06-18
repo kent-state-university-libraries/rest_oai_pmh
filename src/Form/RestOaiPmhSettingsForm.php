@@ -158,7 +158,7 @@ class RestOaiPmhSettingsForm extends ConfigFormBase {
         </ul></p>'),
     ];
     $options = [];
-    if ($this->moduleHandler->moduleExists('metatag_dc')) {
+    if ($this->moduleHandler->moduleExists('rdf')) {
       $options['rdf'] = $this->t('Drupal Core RDF Module');
     }
     if ($this->moduleHandler->moduleExists('metatag_dc')) {
