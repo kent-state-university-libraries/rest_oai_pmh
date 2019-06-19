@@ -43,7 +43,8 @@ function rest_oai_pmh_schema() {
       'set_id' => [
         'description' => 'The setSpec of the set',
         'type' => 'varchar',
-        'length' => 32,
+        // we could have a View ID (max length 32) + ':' + Display ID (max length 32)
+        'length' => 65,
         'not null' => TRUE,
       ],
       'entity_type' => [
@@ -93,7 +94,8 @@ function rest_oai_pmh_schema() {
       ],
       'set_id' => [
         'type' => 'varchar',
-        'length' => 32,
+        // we could have a View ID (max length 32) + ':' + Display ID (max length 32)
+        'length' => 65,
         'not null' => TRUE,
       ],
     ],
@@ -114,4 +116,25 @@ function rest_oai_pmh_update_8001() {
       $schema->createTable($name, $table);
     }
   }
+}
+
+/**
+ * Update the set_id field length
+ */
+function rest_oai_pmh_update_8002() {
+  $schema = \Drupal\Core\Database\Database::getConnection()->schema();
+  $field_name = 'set_id';
+  $field = [
+    'type' => 'varchar',
+    'length' => 65,
+    'not null' => TRUE,
+  ];
+  $tables = [
+    'rest_oai_pmh_set',
+    'rest_oai_pmh_member'
+  ];
+  foreach ($tables as $table) {
+    $schema->changeField($table, $field_name, $field_name, $field);
+  }
+
 }
