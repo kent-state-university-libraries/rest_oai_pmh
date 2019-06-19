@@ -86,11 +86,13 @@ abstract class RestOaiPmhViewsCacheBase extends QueueWorkerBase implements Conta
 
         // if there are more records than what was returned by the first View execution
         // page through the View to get all the records
-        $this->offset = $limit;
-        while ($limit < $total) {
-          $this->indexViewRecords();
-          $this->offset += $limit;
-          $total -= $limit;
+        if ($limit > 0) {
+          $this->offset = $limit;
+          while ($limit < $total) {
+            $this->indexViewRecords();
+            $this->offset += $limit;
+            $total -= $limit;
+          }
         }
 
         // @todo track records that existed BEFORE we indexed the sets, and remove any records that once belonged to the set but might no longer belong

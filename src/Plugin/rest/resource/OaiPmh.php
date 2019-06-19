@@ -463,7 +463,7 @@ class OaiPmh extends ResourceBase {
     $this->response[$this->verb]['resumptionToken'] = [];
 
     // if the total results are more than what was returned here, add a resumption token
-    if ($completeListSize > ($cursor + $end)) {
+    if ($completeListSize > ($cursor + $end) && $end > 0) {
       // set the expiration date per the admin settings
       $expires = \Drupal::time()->getRequestTime() + $this->expiration;
 
@@ -493,8 +493,11 @@ class OaiPmh extends ResourceBase {
       $this->keyValueStore->set('next_token_id', $this->next_token_id);
     }
 
+    // put a pager on the query if there's a pager on the Views exposed to OAI
+    if ($end > 0) {
+      $query->range($cursor, $end);
+    }
 
-    $query->range($cursor, $end);
     $entities = $query->execute();
 
     return $entities;
