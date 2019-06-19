@@ -508,7 +508,7 @@ class OaiPmh extends ResourceBase {
    */
   protected function buildIdentifier($entity) {
     $identifier = 'oai:';
-    $identifier .= $this->currentRequest->getHttpHost();
+    $identifier .= $this->currentRequest->getHost();
     $identifier .= ':';
     $identifier .= $entity->entity_type;
     $identifier .= '-' . $entity->entity_id;
