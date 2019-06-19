@@ -336,7 +336,7 @@ function rest_oai_pmh_cache_views($view_displays = FALSE, $queue_name = 'rest_oa
       $data['sets'][] = [
         'arguments' => [],
         'set_entity_type' => 'view',
-        'set_id' => 'view:' . $view_display,
+        'set_id' => $view_display,
         'set_label' => $display[$display_id]['display_title'],
         'view_display' => $view_display,
       ];
