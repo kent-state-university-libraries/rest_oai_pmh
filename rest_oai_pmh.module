@@ -43,7 +43,39 @@ function rest_oai_pmh_theme() {
   ];
 }
 
+/**
+ * Implements hook_theme_suggestions_HOOK_alter()
+ */
+function rest_oai_pmh_theme_suggestions_rest_oai_pmh_record_alter(array &$suggestions, array $variables) {
+  // allow template file overrides by metadata prefix
+  // e.g. rest-oai-pmh-record--oai-dc.html.twig
+  $metadata_prefix = \Drupal::request()->get('metadataPrefix');
+  if ($metadata_prefix) {
+    $suggestions[] = $hook . '__' . str_replace('-', '_', $metadata_prefix);
+  }
+}
+
+/**
+ * Maps an entity's fields to oai_dc to print the proper metadata
+ *
+ * Default template: views-view.html.twig.
+ *
+ * @param array $variables
+ *   An associative array containing:
+ *   - entity: the entity being printed
+ *   - entity_id: The $entity->id() of the entity being printed
+ *   - entity_type: The type of entity being printer (e.g. node)
+ *   - entity: The entity object being printed
+ *   - metadata_prefix: the "metadataPrefix" value requested to the OAI endpoint
+ *   - mapping_source: which module will be used to map entity fields (i.e. rdf, metatag_dc, custom)
+ *   - set: boolean whether this is a set being printed, @todo implement printing set metadata
+ *   - elements: associative array containg the values that will be printed as XML. Keyed by XML element value, value being the metadata value as a string or array of strings,
+ */
 function template_preprocess_rest_oai_pmh_record(&$variables) {
+  if (empty($variables['metadata_prefix']) || $variables['metadata_prefix'] !== 'oai_dc') {
+    return;
+  }
+
   // init the entity variables
   if (!empty($variables['entity'])) {
     $entity_id = $variables['entity']->id();
@@ -251,7 +283,6 @@ function rest_oai_pmh_entity_delete(EntityInterface $entity) {
 /**
  * Helper function. Create QueueWorker to execute all, or a specific set, of Views that will populate which entities are exposed to OAI
  */
-
 function rest_oai_pmh_cache_views($view_displays = FALSE, $queue_name = 'rest_oai_pmh_views_cache_cron') {
   // get the queue factory
   $queue_factory = \Drupal::service('queue');
@@ -423,7 +454,6 @@ function rest_oai_pmh_remove_record($entity_type, $entity_id, $set_id = FALSE) {
  *
  * Return what properties we're looking for in metadata mapping modules given an OAI metadata prefix
  */
-
 function rest_oai_pmh_get_allowed_properties($metadata_prefix) {
   $elements = [];
   switch ($metadata_prefix) {
@@ -492,3 +522,21 @@ function rest_oai_pmh_get_allowed_properties($metadata_prefix) {
 
   return $elements;
 }
+
+function rest_oai_pmh_rest_oai_pmh_metadata_format_alter(&$formats) {
+  $formats['mods'] = [
+    'format' => [
+      'metadataPrefix' => 'mods',
+      'schema' => 'http://www.loc.gov/standards/mods/v3/mods-3-3.xsd',
+      'metadataNamespace' => 'http://www.loc.gov/mods/v3'
+    ],
+    'wrapper' =>  [
+      'mods' => [
+        '@xmlns' => "http://www.loc.gov/mods/v3",
+        '@xmlns:xsi' => "http://www.w3.org/2001/XMLSchema-instance",
+        '@xsi:schemaLocation' => 'http://www.loc.gov/mods/v3 http://www.loc.gov/standards/mods/v3/mods-3-3.xsd',
+      ]
+    ]
+  ];
+}
+

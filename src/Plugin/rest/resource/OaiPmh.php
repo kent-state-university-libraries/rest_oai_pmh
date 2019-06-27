@@ -10,9 +10,11 @@ use Psr\Log\LoggerInterface;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
 use Symfony\Component\HttpFoundation\Request;
+use Drupal\Core\Extension\ModuleHandlerInterface;
 use Drupal\Core\Render\RenderContext;
 use Drupal\node\Entity\Node;
 use Drupal\views\Views;
+
 /**
  * Provides a resource to get view modes by entity and bundle.
  *
@@ -37,6 +39,13 @@ class OaiPmh extends ResourceBase {
   protected $currentUser;
 
   protected $currentRequest;
+
+  /**
+   * The module handler service.
+   *
+   * @var \Drupal\Core\Extension\ModuleHandlerInterface
+   */
+  protected $moduleHandler;
 
   private $response = [];
 
@@ -77,11 +86,14 @@ class OaiPmh extends ResourceBase {
     array $serializer_formats,
     LoggerInterface $logger,
     AccountProxyInterface $current_user,
-    Request $currentRequest) {
+    Request $currentRequest,
+    ModuleHandlerInterface $module_handler) {
     parent::__construct($configuration, $plugin_id, $plugin_definition, $serializer_formats, $logger);
 
     $this->currentUser = $current_user;
     $this->currentRequest = $currentRequest;
+    $this->moduleHandler = $module_handler;
+
 
     // read the config settings for this endpoint
     // and set some properties for this class from the config
@@ -126,7 +138,8 @@ class OaiPmh extends ResourceBase {
       $container->getParameter('serializer.formats'),
       $container->get('logger.factory')->get('rest_oai_pmh'),
       $container->get('current_user'),
-      $container->get('request_stack')->getCurrentRequest()
+      $container->get('request_stack')->getCurrentRequest(),
+      $container->get('module_handler')
     );
   }
 
@@ -206,13 +219,8 @@ class OaiPmh extends ResourceBase {
     }
 
 
-    $metadata_prefix = $this->currentRequest->get('metadataPrefix');
-    if (empty($metadata_prefix)) {
-      $this->setError('badArgument', 'Missing required argument metadataPrefix.');
-    }
-    elseif (!in_array($metadata_prefix, ['oai_dc'])) {
-      $this->setError('cannotDisseminateFormat', 'The metadata format identified by the value given for the metadataPrefix argument is not supported by the item or by the repository.');
-    }
+    $this->metadataPrefix = $this->currentRequest->get('metadataPrefix');
+    $this->checkMetadataPrefix();
 
     // check if an error was thrown
     if ($this->error) {
@@ -253,15 +261,8 @@ class OaiPmh extends ResourceBase {
 
   protected function ListMetadataFormats() {
     // @todo support more metadata formats
-    $this->response[$this->verb] = [
-      'metadataFormat' => [
-        'metadataPrefix' => 'oai_dc',
-        'schema' => 'http://www.openarchives.org/OAI/2.0/oai_dc.xsd',
-        'metadataNamespace' => 'http://www.openarchives.org/OAI/2.0/oai_dc/'
-      ],
-    ];
+    $this->response[$this->verb]['metadataFormat'] = $this->getMetadataFormats();
   }
-
 
   protected function ListIdentifiers() {
     $entities = $this->getRecordIds();
@@ -346,14 +347,9 @@ class OaiPmh extends ResourceBase {
   }
 
   protected function getRecordMetadata() {
-    $metadata = [
-      'oai_dc:dc' => [
-        '@xmlns:oai_dc' => 'http://www.openarchives.org/OAI/2.0/oai_dc/',
-        '@xmlns:dc' => 'http://purl.org/dc/elements/1.1/',
-        '@xmlns:xsi' => 'http://www.w3.org/2001/XMLSchema-instance',
-        '@xsi:schemaLocation' => 'http://www.openarchives.org/OAI/2.0/oai_dc/ http://www.openarchives.org/OAI/2.0/oai_dc.xsd',
-      ]
-    ];
+    $this->metadataPrefix = $this->currentRequest->get('metadataPrefix');
+    $metadata = $this->getMetadataWrapper();
+
     // @see https://www.lullabot.com/articles/early-rendering-a-lesson-in-debugging-drupal-8
     // can't just call metatag_generate_entity_metatags() here since it renders node token values,
     // which in turn screwing up caching on the REST resource
@@ -361,17 +357,19 @@ class OaiPmh extends ResourceBase {
     $context = new RenderContext();
     $xml = \Drupal::service('renderer')->executeInRenderContext($context, function() {
       $element = [
-        '#theme' => 'rest_oai_pmh_record',
+        '#theme' => 'rest_oai_pmh_record__' . $this->metadata_prefix,
         '#entity_type' => $this->entity->getEntityTypeId(),
         '#entity_id' => $this->entity->id(),
         '#entity' => $this->entity,
         '#mapping_source' => $this->mapping_source,
-        '#metadata_prefix' =>  $this->currentRequest->get('metadataPrefix'),
+        '#metadata_prefix' =>  $this->metadataPrefix,
       ];
 
       return render($element);
     });
-    $metadata['oai_dc:dc']['metadata-xml'] = trim($xml);
+
+    $key = key($metadata);
+    $metadata[$key]['metadata-xml'] = trim($xml);
 
     return $metadata;
   }
@@ -379,7 +377,7 @@ class OaiPmh extends ResourceBase {
   private function getRecordIds() {
     $verb = $this->response['request']['@verb'];
     $resumption_token = $this->currentRequest->get('resumptionToken');
-    $metadata_prefix = $this->currentRequest->get('metadataPrefix');
+    $this->metadataPrefix = $this->currentRequest->get('metadataPrefix');
     $set = $this->currentRequest->get('set');
     $from = $this->currentRequest->get('from');
     $until = $this->currentRequest->get('until');
@@ -393,7 +391,7 @@ class OaiPmh extends ResourceBase {
       if ($token &&
         $token['expires'] > \Drupal::time()->getRequestTime() &&
         $token['verb'] == $this->verb) {
-        $metadata_prefix = $token['metadata_prefix'];
+        $this->metadataPrefix = $token['metadata_prefix'];
         $cursor = $token['cursor'];
         $set = $token['set'];
         $from = $token['from'];
@@ -413,12 +411,9 @@ class OaiPmh extends ResourceBase {
     elseif ((empty($this->support_sets) || empty($this->view_displays)) && $set) {
       $this->setError('noSetHierarchy', 'The repository does not support sets.');
     }
-    elseif (empty($metadata_prefix)) {
-      $this->setError('badArgument', 'Missing required argument metadataPrefix.');
-    }
-    elseif (!in_array($metadata_prefix, ['oai_dc'])) {
-      $this->setError('cannotDisseminateFormat', 'The metadata format identified by the value given for the metadataPrefix argument is not supported by the item or by the repository.');
-    }
+
+    $this->checkMetadataPrefix();
+
     if ($this->error) {
       return;
     }
@@ -476,7 +471,7 @@ class OaiPmh extends ResourceBase {
 
       // save the settings for the resumption token that will be shown in these results
       $token = [
-        'metadata_prefix' => $metadata_prefix,
+        'metadata_prefix' => $this->metadataPrefix,
         'set' => $set,
         'cursor' => $cursor + $end,
         'expires' => $expires,
@@ -568,5 +563,78 @@ class OaiPmh extends ResourceBase {
     // make sure the entity was loaded properly
     // AND the person viewing has access
     $this->entity = $entity && $entity->access('view') ? $entity : FALSE;
+  }
+
+  protected function checkMetadataPrefix() {
+    // if no metadata prefix passed into request, throw error
+    if (empty($this->metadataPrefix)) {
+      $this->setError('badArgument', 'Missing required argument metadataPrefix.');
+    }
+    // else go through all the supported metadata prefixes and see if the value passed is supported
+    else {
+      $supported = FALSE;
+      foreach ($this->getMetadataFormats() as $format) {
+        if ($format['metadataPrefix'] === $this->metadataPrefix) {
+          $supported = TRUE;
+          break;
+        }
+      }
+      if (!$supported) {
+        $this->setError('cannotDisseminateFormat', 'The metadata format identified by the value given for the metadataPrefix argument is not supported by the item or by the repository.');
+      }
+    }
+  }
+
+  protected function getMetadataFormats() {
+    $formats = [];
+    $formats[] = [
+      'metadataPrefix' => 'oai_dc',
+      'schema' => 'http://www.openarchives.org/OAI/2.0/oai_dc.xsd',
+      'metadataNamespace' => 'http://www.openarchives.org/OAI/2.0/oai_dc/'
+    ];
+
+    $additional_formats = [];
+    $this->moduleHandler->alter('rest_oai_pmh_metadata_format', $additional_formats);
+
+    foreach ($additional_formats as $format) {
+      $formats[] = $format['format'];
+    }
+
+    return array_values($formats);
+  }
+
+  /**
+   * Helper function. Get the XML element that will wrap the metadata for each record
+   */
+  protected function getMetadataWrapper() {
+    $metadata_wrapper = [];
+    // if requesting oai_dc, fulfill the request
+    if ($this->metadataPrefix === 'oai_dc') {
+      $metadata_wrapper['oai_dc:dc'] = [
+        '@xmlns:oai_dc' => 'http://www.openarchives.org/OAI/2.0/oai_dc/',
+        '@xmlns:dc' => 'http://purl.org/dc/elements/1.1/',
+        '@xmlns:xsi' => 'http://www.w3.org/2001/XMLSchema-instance',
+        '@xsi:schemaLocation' => 'http://www.openarchives.org/OAI/2.0/oai_dc/ http://www.openarchives.org/OAI/2.0/oai_dc.xsd',
+      ];
+    }
+    // else, get
+    else {
+      $formats = [];
+      $this->moduleHandler->alter('rest_oai_pmh_metadata_format', $formats);
+      foreach ($formats as $key => $format) {
+        if ($format['format']['metadataPrefix'] !== $this->metadataPrefix) {
+          unset($formats[$key]);
+        }
+      }
+      if (count($formats) != 1) {
+        $this->setError('cannotDisseminateFormat', 'The metadata format identified by the value given for the metadataPrefix argument is not supported by the item or by the repository.');
+        return;
+      }
+      else {
+        $metadata_wrapper = current($formats)['wrapper'];
+      }
+    }
+
+    return $metadata_wrapper;
   }
 }
