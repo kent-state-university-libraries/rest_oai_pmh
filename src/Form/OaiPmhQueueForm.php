@@ -10,6 +10,7 @@ use Drupal\Core\Queue\QueueWorkerInterface;
 use Drupal\Core\Queue\QueueWorkerManagerInterface;
 use Drupal\Core\Queue\SuspendQueueException;
 use Symfony\Component\DependencyInjection\ContainerInterface;
+use Drupal\Core\Url;
 
 class OaiPmhQueueForm extends FormBase {
 
@@ -78,18 +79,44 @@ class OaiPmhQueueForm extends FormBase {
     /** @var QueueWorkerInterface $queue_worker */
     $queue_worker = $this->queueManager->createInstance('rest_oai_pmh_views_cache_cron');
 
-    while($item = $queue->claimItem()) {
+    while ($item = $queue->claimItem()) {
       try {
         $queue_worker->processItem($item->data);
         $queue->deleteItem($item);
       }
       catch (SuspendQueueException $e) {
         $queue->releaseItem($item);
+        watchdog_exception('rest_oai_pmh', $e);
         break;
       }
       catch (\Exception $e) {
         watchdog_exception('rest_oai_pmh', $e);
       }
+    }
+
+    // if no more items exist in the queue (we broke the while loop)
+    // print a success message, linking to the OAI endpoint
+    if (!$item) {
+      $url_options = [
+        'absolute' => TRUE,
+        'query' => [
+          'verb' => 'ListRecords',
+          'metadataPrefix' => 'oai_dc',
+        ]
+      ];
+      $t_args = [
+        ':link' => Url::fromRoute('rest.oai_pmh.GET', [], $url_options)->toString()
+      ];
+      drupal_set_message($this->t('Successfully rebuilt your OAI-PMH entries. You can now see your records at <a href=":link">:link</a>', $t_args));
+    }
+    else {
+     $url_options = [
+        'absolute' => TRUE,
+      ];
+      $t_args = [
+        ':link' => Url::fromRoute('dblog.overview', [], $url_options)->toString()
+      ];
+      drupal_set_message($this->t('Could not rebuild your OAI-PMH endpoint. Please check your <a href=":link">Recent log messages</a>', $t_args), 'error');
     }
   }
 }

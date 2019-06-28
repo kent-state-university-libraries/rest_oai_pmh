@@ -357,7 +357,7 @@ class OaiPmh extends ResourceBase {
     $context = new RenderContext();
     $xml = \Drupal::service('renderer')->executeInRenderContext($context, function() {
       $element = [
-        '#theme' => 'rest_oai_pmh_record__' . $this->metadata_prefix,
+        '#theme' => 'rest_oai_pmh_record__' . $this->metadataPrefix,
         '#entity_type' => $this->entity->getEntityTypeId(),
         '#entity_id' => $this->entity->id(),
         '#entity' => $this->entity,
