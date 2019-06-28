@@ -182,7 +182,9 @@ function rest_oai_pmh_metatag_tags_alter(&$definitions) {
   // set some dublin core metatags to allow for multiple values
   $terms = ['dcterms_creator', 'dcterms_subject'];
   foreach ($terms as $term) {
-    $definitions[$term]['multiple'] = TRUE;
+    if (!empty($definitions[$term])) {
+      $definitions[$term]['multiple'] = TRUE;
+    }
   }
 }
 
