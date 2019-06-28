@@ -143,6 +143,7 @@ function template_preprocess_rest_oai_pmh_record(&$variables) {
           // add all the values for this field so the twig template can print
           $variables['elements'][$element] = [];
           foreach ($items as $item) {
+            $index = $item->mainPropertyName();
             if (!empty($field_mapping['datatype_callback'])) {
               $callback = $field_mapping['datatype_callback']['callable'];
               $arguments = isset($field_mapping['datatype_callback']['arguments']) ? $field_mapping['datatype_callback']['arguments'] : NULL;
@@ -153,7 +154,6 @@ function template_preprocess_rest_oai_pmh_record(&$variables) {
               $value = $item->entity->label();
             }
             else {
-              $index = $item->mainPropertyName();
               $value = $item->getValue()[$index];
             }
             $variables['elements'][$element][] = $value;
