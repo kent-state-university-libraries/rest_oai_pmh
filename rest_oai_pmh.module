@@ -295,6 +295,16 @@ function rest_oai_pmh_cache_views($view_displays = FALSE, $queue_name = 'rest_oa
     $view_displays = $config->get('view_displays') ? : [];
     // flush the queue since we're rebuilding everything
     $queue->deleteQueue();
+
+    // truncate the tables since we're caching all the views
+    $tables = [
+      'rest_oai_pmh_set',
+      'rest_oai_pmh_record',
+      'rest_oai_pmh_member',
+    ];
+    foreach ($tables as $table) {
+      \Drupal::database()->truncate($table)->execute();
+    }
   }
 
   foreach ($view_displays as $view_display) {
