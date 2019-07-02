@@ -51,7 +51,7 @@ function rest_oai_pmh_theme_suggestions_rest_oai_pmh_record_alter(array &$sugges
   // e.g. rest-oai-pmh-record--oai-dc.html.twig
   $metadata_prefix = \Drupal::request()->get('metadataPrefix');
   if ($metadata_prefix) {
-    $suggestions[] = $hook . '__' . str_replace('-', '_', $metadata_prefix);
+    $suggestions[] = 'rest_oai_pmh_record__' . str_replace('-', '_', $metadata_prefix);
   }
 }
 
