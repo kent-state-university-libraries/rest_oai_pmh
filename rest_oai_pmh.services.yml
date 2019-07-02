@@ -2,4 +2,9 @@ services:
   encoder.oai_dc:
     class: Drupal\rest_oai_pmh\Encoder\OaiDcEncoder
     tags:
-      - {name: 'encoder', format: 'oai_dc'}
+      - { name: 'encoder', format: 'oai_dc' }
+
+  rest_oai_pmh_subscriber:
+    class: '\Drupal\rest_oai_pmh\EventSubscriber\OaiDcMimeType'
+    tags:
+      - { name: 'event_subscriber' }
