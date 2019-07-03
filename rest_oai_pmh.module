@@ -102,6 +102,10 @@ function template_preprocess_rest_oai_pmh_record(&$variables) {
     $metatags = metatag_generate_entity_metatags($entity);
     // go through all the metatags ['#type' => 'tag'] render elements
     foreach ($metatags as $term => $metatag) {
+      if (empty($metatag['#attributes']['name'])) {
+        continue;
+      }
+
       // metatag_dc stores terms ad dcterms.ELEMENT
       // rename for oai_dc
       $property = str_replace('dcterms.', 'dc:', $metatag['#attributes']['name']);
