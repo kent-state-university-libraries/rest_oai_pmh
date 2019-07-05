@@ -229,6 +229,7 @@ class OaiPmh extends ResourceBase {
     }
     // if no error, print the record
     else {
+      $this->response['request']['@metadataPrefix'] = $this->metadataPrefix;
       $this->response[$this->verb]['record'] = $this->getRecordById($identifier);
     }
   }
@@ -267,7 +268,9 @@ class OaiPmh extends ResourceBase {
   protected function ListIdentifiers() {
     $entities = $this->getRecordIds();
     foreach ($entities as $entity) {
+      $this->oai_entity = $entity;
       $identifier = $this->buildIdentifier($entity);
+      $this->loadEntity($identifier, TRUE);
       $this->response[$this->verb]['header'][] = $this->getHeaderById($identifier);
     }
   }
@@ -421,6 +424,7 @@ class OaiPmh extends ResourceBase {
       // our {rest_oai_pmh_set} stores the pager information for the Views exposed to OAI
       // to play it safe, make the limit // max results returned be the smallest pager size for all the Views exposed to OAI
       $end = \Drupal::database()->query('SELECT MIN(`limit`) FROM {rest_oai_pmh_set}')->fetchField();
+      $this->response['request']['@metadataPrefix'] = $this->metadataPrefix;
     }
 
     // query our {rest_oai_pmh_*} tables to get records that are exposed to OAI
