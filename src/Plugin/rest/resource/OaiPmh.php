@@ -208,12 +208,19 @@ class OaiPmh extends ResourceBase {
 
     $this->loadEntity($identifier);
 
+    $components = explode(':', $identifier);
+    $host = $this->currentRequest->getHttpHost();
+    // remove port from hostname
+    if (strpos($host, ':') !== FALSE) {
+      $host_parts = explode(':', $host);
+      $host = $host_parts[0];
+    }
+
     // check to ensure the identifier is valid
     // and an entity was loaded
-    $components = explode(':', $identifier);
     if (count($components) != 3 ||
       $components[0] !== 'oai' ||
-      $components[1] !== $this->currentRequest->getHttpHost() ||
+      $components[1] !== $host ||
       empty($this->entity)) {
       $this->setError('idDoesNotExist', 'The value of the identifier argument is unknown or illegal in this repository.');
     }
