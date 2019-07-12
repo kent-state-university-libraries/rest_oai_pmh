@@ -1,0 +1,41 @@
+<?php
+
+/**
+ * Implements hook_theme().
+ */
+function rest_oai_pmh_etdms_theme() {
+  $theme['rest_oai_pmh_record__etdms'] = [
+    'template' => 'rest-oai-pmh-record--etdms',
+    'base hook' => 'rest-oai-pmh-record',
+  ];
+
+  return $theme;
+}
+
+function rest_oai_pmh_etdms_rest_oai_pmh_metadata_format_alter(&$formats) {
+  $formats['etdms'] = [
+    'format' => [
+      'metadataPrefix' => 'etdms',
+      'schema' => 'http://www.loc.gov/standards/mods/v3/mods-3-3.xsd',
+      'metadataNamespace' => 'http://www.ndltd.org/standards/metadata/etdms/1.1/etdms11.xsd'
+    ],
+    'wrapper' =>  [
+      'thesis' => [
+        '@xmlns' => "http://www.ndltd.org/standards/metadata/etdms/1.1/",
+        '@xmlns:xsi' => "http://www.w3.org/2001/XMLSchema-instance",
+        '@xmlns:dc' => "http://purl.org/dc/elements/1.1/",
+        '@xmlns:dcterms' => "http://purl.org/dc/terms/",
+        '@xsi:schemaLocation' => 'http://www.ndltd.org/standards/metadata/etdms/1.1/  http://www.ndltd.org/standards/metadata/etdms/1.1/etdms11.xsd http://purl.org/dc/elements/1.1/ http://www.ndltd.org/standards/metadata/etdms/1.1/etdmsdc.xsd http://purl.org/dc/terms/ http://www.ndltd.org/standards/metadata/etdms/1.1/etdmsdcterms.xsd',
+      ]
+    ]
+  ];
+}
+
+function rest_oai_pmh_etdms_preprocess_rest_oai_pmh_record__etdms(&$variables) {
+  // @todo print only appropriate metadata elements for ETDMS
+  // do not know what's proper to print here, so just going to get the
+  // dublin core metadata from rest_oai_pmh core module
+  // and that will print dubline core of the elements
+  $variables['metadata_prefix'] = 'oai_dc';
+  template_preprocess_rest_oai_pmh_record($variables);
+}
