@@ -72,27 +72,8 @@ class OaiPmhQueueForm extends FormBase {
    * {@inheritdoc}
    */
   public function submitForm(array &$form, FormStateInterface $form_state) {
-    rest_oai_pmh_cache_views();
 
-    /** @var QueueInterface $queue */
-    $queue = $this->queueFactory->get('rest_oai_pmh_views_cache_cron');
-    /** @var QueueWorkerInterface $queue_worker */
-    $queue_worker = $this->queueManager->createInstance('rest_oai_pmh_views_cache_cron');
-
-    while ($item = $queue->claimItem()) {
-      try {
-        $queue_worker->processItem($item->data);
-        $queue->deleteItem($item);
-      }
-      catch (SuspendQueueException $e) {
-        $queue->releaseItem($item);
-        watchdog_exception('rest_oai_pmh', $e);
-        break;
-      }
-      catch (\Exception $e) {
-        watchdog_exception('rest_oai_pmh', $e);
-      }
-    }
+    rest_oai_pmh_rebuild_entries();
 
     // if no more items exist in the queue (we broke the while loop)
     // print a success message, linking to the OAI endpoint

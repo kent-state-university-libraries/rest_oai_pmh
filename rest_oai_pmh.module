@@ -7,6 +7,7 @@
 
 use Drupal\Core\Routing\RouteMatchInterface;
 use Drupal\Core\Entity\EntityInterface;
+use Drupal\Core\Queue\SuspendQueueException;
 
 /**
  * Implements hook_help().
@@ -463,6 +464,31 @@ function rest_oai_pmh_remove_record($entity_type, $entity_id, $set_id = FALSE) {
   }
 
   $query->execute();
+}
+
+/**
+ * Helper function. Rebuild {rest_oai_pmh_*} tables immediately.
+ */
+function rest_oai_pmh_rebuild_entries() {
+  rest_oai_pmh_cache_views();
+
+  $queue = \Drupal::service('queue')->get('rest_oai_pmh_views_cache_cron');
+  $queue_worker = \Drupal::service('plugin.manager.queue_worker')->createInstance('rest_oai_pmh_views_cache_cron');
+
+  while ($item = $queue->claimItem()) {
+    try {
+      $queue_worker->processItem($item->data);
+      $queue->deleteItem($item);
+    }
+    catch (SuspendQueueException $e) {
+      $queue->releaseItem($item);
+      watchdog_exception('rest_oai_pmh', $e);
+      break;
+    }
+    catch (\Exception $e) {
+      watchdog_exception('rest_oai_pmh', $e);
+    }
+  }
 }
 
 /**
