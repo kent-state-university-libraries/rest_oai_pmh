@@ -73,7 +73,7 @@ abstract class RestOaiPmhViewsCacheBase extends QueueWorkerBase implements Conta
           ->keys($merge_keys, $merge_values)
           ->fields([
             'label' => $set_label,
-            'limit' => $limit,
+            'pager_limit' => $limit,
             'view_display' => $view_display
           ])->execute();
 

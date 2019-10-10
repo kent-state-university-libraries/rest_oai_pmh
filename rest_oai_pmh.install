@@ -62,7 +62,7 @@ function rest_oai_pmh_schema() {
         'type' => 'varchar',
         'length' => 255,
       ],
-      'limit' => [
+      'pager_limit' => [
         'description' => 'The pager/limit value for the set as defined by Views',
         'type' => 'int',
         'unsigned' => TRUE,
@@ -136,5 +136,29 @@ function rest_oai_pmh_update_8002() {
   foreach ($tables as $table) {
     $schema->changeField($table, $field_name, $field_name, $field);
   }
+}
 
+/**
+ * Change {rest_oai_pmh_set}.limit to {rest_oai_pmh_set}.pager_limit to accomodate Postgres
+ */
+function rest_oai_pmh_update_8003() {
+  $schema = \Drupal\Core\Database\Database::getConnection()->schema();
+  $table = 'rest_oai_pmh_set';
+  $old_limit_field = 'limit';
+  $new_limit_field = 'pager_limit';
+
+  if ($schema->fieldExists($table, $old_limit_field)) {
+    $schema->dropField($table, $old_limit_field);
+  }
+
+  if (!$schema->fieldExists($table, $new_limit_field)) {
+    $field_spec = [
+      'description' => 'The pager/limit value for the set as defined by Views',
+      'type' => 'int',
+      'unsigned' => TRUE,
+      'not null' => TRUE,
+      'default' => 10,
+    ];
+    $schema->addField($table, $new_limit_field, $field_spec);
+  }
 }

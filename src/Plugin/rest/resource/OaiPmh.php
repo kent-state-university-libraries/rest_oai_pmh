@@ -435,7 +435,7 @@ class OaiPmh extends ResourceBase {
     else {
       // our {rest_oai_pmh_set} stores the pager information for the Views exposed to OAI
       // to play it safe, make the limit // max results returned be the smallest pager size for all the Views exposed to OAI
-      $end = \Drupal::database()->query('SELECT MIN(`limit`) FROM {rest_oai_pmh_set}')->fetchField();
+      $end = \Drupal::database()->query('SELECT MIN(`pager_limit`) FROM {rest_oai_pmh_set}')->fetchField();
       $this->response['request']['@metadataPrefix'] = $this->metadataPrefix;
     }
 
