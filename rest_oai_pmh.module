@@ -146,7 +146,6 @@ function template_preprocess_rest_oai_pmh_record(&$variables) {
         // if $element is set, we have a valid property
         if ($element) {
           // add all the values for this field so the twig template can print
-          $variables['elements'][$element] = [];
           foreach ($items as $item) {
             $index = $item->mainPropertyName();
             if (!empty($field_mapping['datatype_callback'])) {
