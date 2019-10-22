@@ -430,7 +430,7 @@ class OaiPmh extends ResourceBase {
     $this->checkMetadataPrefix();
 
     if ($this->error) {
-      return;
+      return [];
     }
     else {
       // our {rest_oai_pmh_set} stores the pager information for the Views exposed to OAI
