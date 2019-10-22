@@ -137,8 +137,16 @@ function template_preprocess_rest_oai_pmh_record(&$variables) {
         // e.g oai_dc only will print Dublin Core tags
         $element = FALSE;
         foreach ($field_mapping['properties'] as $property) {
+          // if this is a DC /elements/1.1, set the element
           if (in_array($property, $allowed_properties)) {
             $element = $property;
+          }
+          // DC /terms/ are mapped to their respective /elements/1.1
+          // in accordance with the oai_dc schema http://www.openarchives.org/OAI/2.0/oai_dc.xsd
+          elseif (isset($allowed_properties[$property])) {
+            $element = $allowed_properties[$property];
+          }
+          if ($element) {
             break;
           }
         }
@@ -516,47 +524,41 @@ function rest_oai_pmh_get_allowed_properties($metadata_prefix) {
         'dc:title',
         'dc:type',
 
-        // plus DCMI
-        'dc:abstract',
-        'dc:accessRights',
-        'dc:accrualMethod',
-        'dc:accrualPeriodicity',
-        'dc:accrualPolicy',
-        'dc:alternative',
-        'dc:audience',
-        'dc:available',
-        'dc:bibliographicCitation',
-        'dc:conformsTo',
-        'dc:created',
-        'dc:dateAccepted',
-        'dc:dateCopyrighted',
-        'dc:dateSubmitted',
-        'dc:educationLevel',
-        'dc:extent',
-        'dc:hasFormat',
-        'dc:hasPart',
-        'dc:hasVersion',
-        'dc:instructionalMethod',
-        'dc:isFormatOf',
-        'dc:isPartOf',
-        'dc:isReferencedBy',
-        'dc:isReplacedBy',
-        'dc:isRequiredBy',
-        'dc:isVersionOf',
-        'dc:issued',
-        'dc:license',
-        'dc:mediator',
-        'dc:medium',
-        'dc:modified',
-        'dc:provenance',
-        'dc:references',
-        'dc:replaces',
-        'dc:requires',
-        'dc:rightsHolder',
-        'dc:spatial',
-        'dc:tableOfContents',
-        'dc:temporal',
-        'dc:valid',
+        // plus http://purl.org/dc/terms
+        // mapped to their respective http://purl.org/dc/elements/1.1/
+        'dc:abstract' => 'dc:description',
+        'dc:accessRights' => 'dc:rights',
+        'dc:alternative' => 'dc:title',
+        'dc:available' => 'dc:date',
+        'dc:bibliographicCitation' => 'dc:identifier',
+        'dc:conformsTo' => 'dc:relation',
+        'dc:created' => 'dc:date',
+        'dc:dateAccepted' => 'dc:date',
+        'dc:dateCopyrighted' => 'dc:date',
+        'dc:dateSubmitted' => 'dc:date',
+        'dc:educationLevel' => 'dc:audience',
+        'dc:extent' => 'dc:format',
+        'dc:hasFormat' => 'dc:format',
+        'dc:hasPart' => 'dc:relation',
+        'dc:hasVersion' => 'dc:relation',
+        'dc:isFormatOf' => 'dc:relation',
+        'dc:isPartOf' => 'dc:relation',
+        'dc:isReferencedBy' => 'dc:relation',
+        'dc:isReplacedBy' => 'dc:relation',
+        'dc:isRequiredBy' => 'dc:relation',
+        'dc:isVersionOf' => 'dc:relation',
+        'dc:issued' => 'dc:date',
+        'dc:license' => 'dc:rights',
+        'dc:mediator' => 'dc:audience',
+        'dc:medium' => 'dc:format',
+        'dc:modified' => 'dc:date',
+        'dc:references' => 'dc:relation',
+        'dc:replaces' => 'dc:relation',
+        'dc:requires' => 'dc:relation',
+        'dc:spatial' => 'dc:coverage',
+        'dc:tableOfContents' => 'dc:description',
+        'dc:temporal' => 'dc:coverage',
+        'dc:valid' => 'dc:date',
       ];
       break;
   }
