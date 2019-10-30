@@ -107,6 +107,7 @@ class OaiPmh extends ResourceBase {
       'expiration',
       'support_sets',
       'mapping_source',
+      'mapping_plugins',
     ];
     foreach ($fields as $field) {
       $this->{$field} = $config->get($field);
@@ -363,29 +364,16 @@ class OaiPmh extends ResourceBase {
 
   protected function getRecordMetadata() {
     $this->metadataPrefix = $this->currentRequest->get('metadataPrefix');
-    $metadata = $this->getMetadataWrapper();
 
-    // @see https://www.lullabot.com/articles/early-rendering-a-lesson-in-debugging-drupal-8
-    // can't just call metatag_generate_entity_metatags() here since it renders node token values,
-    // which in turn screwing up caching on the REST resource
-    // @todo ensure caching is working properly here
-    $context = new RenderContext();
-    $xml = \Drupal::service('renderer')->executeInRenderContext($context, function() {
-      $element = [
-        '#theme' => 'rest_oai_pmh_record__' . $this->metadataPrefix,
-        '#entity_type' => $this->entity->getEntityTypeId(),
-        '#entity_id' => $this->entity->id(),
-        '#entity' => $this->entity,
-        '#mapping_source' => $this->mapping_source,
-        '#metadata_prefix' =>  $this->metadataPrefix,
-      ];
+    // Load the metadata map plugin associated with the metadata prefix.
+    $mapping_plugin_manager = \Drupal::service('plugin.manager.oai_metadata_map');
+    $mapping_plugin = $mapping_plugin_manager->loadByMetadataPrefix($this->metadataPrefix); 
 
-      return render($element);
-    });
-
-    $key = key($metadata);
-    $metadata[$key]['metadata-xml'] = trim($xml);
-
+    // Transform the record with the relevant plugin.
+    $metadata = $mapping_plugin->getMetadataWrapper();
+    $record = $mapping_plugin->transformRecord($this->entity);
+    $metadata[$this->metadataPrefix]['metadata-xml'] = trim($record);
+    
     return $metadata;
   }
 
@@ -590,7 +578,7 @@ class OaiPmh extends ResourceBase {
     else {
       $supported = FALSE;
       foreach ($this->getMetadataFormats() as $format) {
-        if ($format['metadataPrefix'] === $this->metadataPrefix) {
+        if ($format == $this->metadataPrefix) {
           $supported = TRUE;
           break;
         }
@@ -602,55 +590,13 @@ class OaiPmh extends ResourceBase {
   }
 
   protected function getMetadataFormats() {
+    $mapping_plugin_definitions = \Drupal::service('plugin.manager.oai_metadata_map')->getDefinitions();
     $formats = [];
-    $formats[] = [
-      'metadataPrefix' => 'oai_dc',
-      'schema' => 'http://www.openarchives.org/OAI/2.0/oai_dc.xsd',
-      'metadataNamespace' => 'http://www.openarchives.org/OAI/2.0/oai_dc/'
-    ];
-
-    $additional_formats = [];
-    $this->moduleHandler->alter('rest_oai_pmh_metadata_format', $additional_formats);
-
-    foreach ($additional_formats as $format) {
-      $formats[] = $format['format'];
-    }
-
-    return array_values($formats);
-  }
-
-  /**
-   * Helper function. Get the XML element that will wrap the metadata for each record
-   */
-  protected function getMetadataWrapper() {
-    $metadata_wrapper = [];
-    // if requesting oai_dc, fulfill the request
-    if ($this->metadataPrefix === 'oai_dc') {
-      $metadata_wrapper['oai_dc:dc'] = [
-        '@xmlns:oai_dc' => 'http://www.openarchives.org/OAI/2.0/oai_dc/',
-        '@xmlns:dc' => 'http://purl.org/dc/elements/1.1/',
-        '@xmlns:xsi' => 'http://www.w3.org/2001/XMLSchema-instance',
-        '@xsi:schemaLocation' => 'http://www.openarchives.org/OAI/2.0/oai_dc/ http://www.openarchives.org/OAI/2.0/oai_dc.xsd',
-      ];
-    }
-    // else, get
-    else {
-      $formats = [];
-      $this->moduleHandler->alter('rest_oai_pmh_metadata_format', $formats);
-      foreach ($formats as $key => $format) {
-        if ($format['format']['metadataPrefix'] !== $this->metadataPrefix) {
-          unset($formats[$key]);
-        }
-      }
-      if (count($formats) != 1) {
-        $this->setError('cannotDisseminateFormat', 'The metadata format identified by the value given for the metadataPrefix argument is not supported by the item or by the repository.');
-        return;
-      }
-      else {
-        $metadata_wrapper = current($formats)['wrapper'];
+    foreach ($mapping_plugin_definitions as $plugin_id => $plugin_definition) {
+      if (in_array($plugin_id, $this->mapping_plugins)) {
+        $formats[] = $plugin_definition['metadata_format'];
       }
     }
-
-    return $metadata_wrapper;
+    return $formats;
   }
 }

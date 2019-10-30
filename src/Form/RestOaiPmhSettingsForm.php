@@ -145,34 +145,20 @@ class RestOaiPmhSettingsForm extends ConfigFormBase {
     $form['mapping'] = [
       '#type' => 'details',
       '#open' => TRUE,
-      '#title' => $this->t('Metadata Mapping'),
+      '#title' => $this->t('Metadata Mappings'),
       '#attributes' => ['style' => 'max-width: 750px'],
-      '#description' => $this->t('<p>Select how the entities that are exposed to OAI-PMH will be mapped to Dublin Core and printed on your OAI-PMH endpoint. There are a few supported options:</p>
-        <p>
-        <ul>
-          <li><strong>Drupal Core RDF Module</strong> if you have Drupal\'s core RDF module enabled, and have an RDF mapping with some Dublin Core elements for your entitities, that field mapping will be used<br><br></li>
-
-          <li><strong>Metatag Dublin Core Module</strong> If you have the <a href="http://drupal.org/project/metatag">Metatag Dublin Core</a> module enabled, and have some Dublin Core properites defined for the entities exposed to OAI-PMH, that mapping will be used.<br><br></li>
-
-          <li><strong>Custom</strong> with a custom module or theme, you can implement<br><code>hook_preprocess_rest_oai_pmh_record</code>,<br>and/or override the <code>rest-oai-pmh-record.html.twig</code> template file</li>
-        </ul></p>'),
+      '#description' => $this->t('<p>Select which metadata plugins should be enabled.</p>'),
     ];
-    $options = [];
-    if ($this->moduleHandler->moduleExists('rdf')) {
-      $options['rdf'] = $this->t('Drupal Core RDF Module');
+    $mapping_plugin_definitions = \Drupal::service('plugin.manager.oai_metadata_map')->getDefinitions();
+    $mapping_plugin_options = [];
+    foreach ($mapping_plugin_definitions as $plugin_id => $plugin_definition) {
+      $mapping_plugin_options[$plugin_id] = $plugin_definition['label']->render();
     }
-    if ($this->moduleHandler->moduleExists('metatag_dc')) {
-      $options['metatag_dc'] = $this->t('Metatag Dublin Core Module');
-    }
-    $options += [
-      'custom' => $this->t('Custom'),
-    ];
-    $form['mapping']['mapping_source'] = [
-      '#type' => 'select',
-      '#title' => $this->t('Metadata Mapping Source'),
-      '#options' => $options,
-      '#required' => TRUE,
-      '#default_value' => $config->get('mapping_source') ? : NULL,
+    $form['mapping']['mapping_plugins'] = [
+      '#type' => 'checkboxes',
+      '#options' => $mapping_plugin_options,
+      '#title' => $this->t('Available Mapping Plugins'),
+      '#default_value' => empty($config->get('mapping_plugins')) ? 'default' : $config->get('mapping_plugins'),
     ];
 
     $name = $config->get('repository_name');
@@ -267,7 +253,7 @@ class RestOaiPmhSettingsForm extends ConfigFormBase {
 
     $config->set('view_displays', $view_displays)
       ->set('support_sets', $form_state->getValue('support_sets'))
-      ->set('mapping_source', $form_state->getValue('mapping_source'))
+      ->set('mapping_plugins', $form_state->getValue('mapping_plugins'))
       ->set('repository_name', $form_state->getValue('repository_name'))
       ->set('repository_email', $form_state->getValue('repository_email'))
       ->set('expiration', $form_state->getValue('expiration'))
