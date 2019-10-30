@@ -34,11 +34,14 @@ class OaiMetadataMapManager extends DefaultPluginManager {
    */
   public function loadByMetadataPrefix(string $prefix) {
     $definitions = $this->getDefinitions();
+    $plugins = [];
     foreach ($definitions as $plugin_id => $definition) {
       if ($definition['metadata_format'] == $prefix) {
-        return $this->createInstance($plugin_id);
+        $plugins[] = $plugin_id;
+        #return $this->createInstance($plugin_id);
       }
     }
+    return $plugins;
   }
 
 }
