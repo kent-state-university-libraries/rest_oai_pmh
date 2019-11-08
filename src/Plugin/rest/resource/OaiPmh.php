@@ -184,7 +184,10 @@ class OaiPmh extends ResourceBase {
       // if we do not have any entries in the cached table, the cache needs rebuilt.
       // Do so now instead of waiting on Drupal cron to avoid empty results
       if (\Drupal::database()->query('SELECT COUNT(*) FROM {rest_oai_pmh_record}')->fetchField() == 0) {
-          rest_oai_pmh_rebuild_entries();
+        $context = new RenderContext();
+        \Drupal::service('renderer')->executeInRenderContext($context, function() {
+            rest_oai_pmh_rebuild_entries();
+        });
       }
       $this->response['request']['@verb'] = $this->verb = $verb;
       $this->{$verb}();
