@@ -31,20 +31,4 @@ class OaiMetadataMapManager extends DefaultPluginManager
         $this->setCacheBackend($cache_backend, 'rest_oai_pmh_oai_metadata_map_plugins');
     }
 
-    /**
-     *
-     */
-    public function loadByMetadataPrefix(string $prefix)
-    {
-        $definitions = $this->getDefinitions();
-        $plugins = [];
-        foreach ($definitions as $plugin_id => $definition) {
-            if ($definition['metadata_format'] == $prefix) {
-                $plugins[] = $plugin_id;
-                // return $this->createInstance($plugin_id);
-            }
-        }
-        return $plugins;
-    }
-
 }
