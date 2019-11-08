@@ -6,6 +6,7 @@ use Drupal\Core\Session\AccountProxyInterface;
 use Drupal\rest\Plugin\ResourceBase;
 use Drupal\rest\ResourceResponse;
 use Psr\Log\LoggerInterface;
+use Drupal\Core\Config\ImmutableConfig;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\HttpFoundation\Request;
 use Drupal\Core\Extension\ModuleHandlerInterface;
@@ -76,15 +77,15 @@ class OaiPmh extends ResourceBase {
    *   A current user instance.
    */
   public function __construct(
-        array $configuration,
-        $plugin_id,
-        $plugin_definition,
-        array $serializer_formats,
-        LoggerInterface $logger,
-        AccountProxyInterface $current_user,
-        Request $currentRequest,
-        ModuleHandlerInterface $module_handler
-    ) {
+    array $configuration,
+    $plugin_id,
+    $plugin_definition,
+    array $serializer_formats,
+    ImmutableConfig $config,
+    LoggerInterface $logger,
+    AccountProxyInterface $current_user,
+    Request $currentRequest,
+    ModuleHandlerInterface $module_handler) {
     parent::__construct($configuration, $plugin_id, $plugin_definition, $serializer_formats, $logger);
 
     $this->currentUser = $current_user;
@@ -129,14 +130,15 @@ class OaiPmh extends ResourceBase {
    */
   public static function create(ContainerInterface $container, array $configuration, $plugin_id, $plugin_definition) {
     return new static(
-        $configuration,
-        $plugin_id,
-        $plugin_definition,
-        $container->getParameter('serializer.formats'),
-        $container->get('logger.factory')->get('rest_oai_pmh'),
-        $container->get('current_user'),
-        $container->get('request_stack')->getCurrentRequest(),
-        $container->get('module_handler')
+      $configuration,
+      $plugin_id,
+      $plugin_definition,
+      $container->getParameter('serializer.formats'),
+      $container->get('config.factory')->get('rest_oai_pmh.settings'),
+      $container->get('logger.factory')->get('rest_oai_pmh'),
+      $container->get('current_user'),
+      $container->get('request_stack')->getCurrentRequest(),
+      $container->get('module_handler')
     );
   }
 
@@ -179,7 +181,10 @@ class OaiPmh extends ResourceBase {
       // If we do not have any entries in the cached table, the cache needs rebuilt.
       // Do so now instead of waiting on Drupal cron to avoid empty results.
       if (\Drupal::database()->query('SELECT COUNT(*) FROM {rest_oai_pmh_record}')->fetchField() == 0) {
-        rest_oai_pmh_rebuild_entries();
+        $context = new RenderContext();
+        \Drupal::service('renderer')->executeInRenderContext($context, function() {
+            rest_oai_pmh_rebuild_entries();
+        });
       }
       $this->response['request']['@verb'] = $this->verb = $verb;
       $this->{$verb}();
