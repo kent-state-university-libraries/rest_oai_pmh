@@ -289,7 +289,6 @@ class OaiPmh extends ResourceBase {
    */
   protected function ListMetadataFormats() {
     // @todo support more metadata formats
-    // $this->response[$this->verb]['metadataFormat'] = $this->getMetadataFormats();
     $formats = [];
     foreach ($this->getMetadataFormats() as $format) {
       $plugin = $this->getMetadataPlugin($format);
@@ -626,18 +625,9 @@ class OaiPmh extends ResourceBase {
     if (empty($this->metadataPrefix)) {
       $this->setError('badArgument', 'Missing required argument metadataPrefix.');
     }
-    // Else go through all the supported metadata prefixes and see if the value passed is supported.
-    else {
-      $supported = FALSE;
-      foreach ($this->getMetadataFormats() as $format) {
-        if ($format == $this->metadataPrefix) {
-          $supported = TRUE;
-          break;
-        }
-      }
-      if (!$supported) {
+    // Do we have a plugin configured for it?
+    elseif (!in_array($this->metadataPrefix, $this->getMetadataFormats())) {
         $this->setError('cannotDisseminateFormat', 'The metadata format identified by the value given for the metadataPrefix argument is not supported by the item or by the repository.');
-      }
     }
   }
 
@@ -654,9 +644,9 @@ class OaiPmh extends ResourceBase {
   }
 
   /**
-   * Returns a list of available metadata formats with their configured plugin.
+   * Returns a list of available metadata formats.
    *
-   * @return array Associative array keyed by metadata prefix with configured plugin as the key's value.
+   * @return array available metadata formats.
    */
   protected function getMetadataFormats() {
     return array_keys(array_filter($this->metadata_map_plugins));
