@@ -144,22 +144,26 @@ class RestOaiPmhSettingsForm extends ConfigFormBase {
 
     $form['mapping'] = [
       '#type' => 'details',
+      '#tree' => TRUE,
       '#open' => TRUE,
       '#title' => $this->t('Metadata Mappings'),
       '#attributes' => ['style' => 'max-width: 750px'],
       '#description' => $this->t('<p>Select which metadata plugins should be enabled.</p>'),
     ];
-    $mapping_plugin_definitions = \Drupal::service('plugin.manager.oai_metadata_map')->getDefinitions();
-    $mapping_plugin_options = [];
-    foreach ($mapping_plugin_definitions as $plugin_id => $plugin_definition) {
-      $mapping_plugin_options[$plugin_id] = $plugin_definition['label']->render();
+    $mapping_prefix_plugins = [];
+    foreach (\Drupal::service('plugin.manager.oai_metadata_map')->getDefinitions() as $plugin_id => $plugin_definition) {
+      $mapping_prefix_plugins[$plugin_definition['metadata_format']][$plugin_id] = $plugin_definition['label']->render();
     }
-    $form['mapping']['mapping_plugins'] = [
-      '#type' => 'checkboxes',
-      '#options' => $mapping_plugin_options,
-      '#title' => $this->t('Available Mapping Plugins'),
-      '#default_value' => empty($config->get('mapping_plugins')) ? 'default' : $config->get('mapping_plugins'),
-    ];
+    $mapping_config = $config->get('metadata_map_plugins');
+    foreach ($mapping_prefix_plugins as $metadata_prefix => $options) {
+      $form['mapping'][$metadata_prefix] = [
+        '#type' => 'select',
+        '#empty_value' => '',
+        '#options' => $options,
+        '#title' => $metadata_prefix,
+        '#default_value' => empty($mapping_config[$metadata_prefix]) ? '' : $mapping_config[$metadata_prefix],
+      ];      
+    }
 
     $name = $config->get('repository_name');
     $form['repository_name'] = [
@@ -253,7 +257,7 @@ class RestOaiPmhSettingsForm extends ConfigFormBase {
 
     $config->set('view_displays', $view_displays)
       ->set('support_sets', $form_state->getValue('support_sets'))
-      ->set('mapping_plugins', $form_state->getValue('mapping_plugins'))
+      ->set('metadata_map_plugins', $form_state->getValue('mapping'))
       ->set('repository_name', $form_state->getValue('repository_name'))
       ->set('repository_email', $form_state->getValue('repository_email'))
       ->set('expiration', $form_state->getValue('expiration'))

@@ -20,47 +20,57 @@ use Drupal\rest_oai_pmh\Plugin\OaiMetadataMapBase;
  *  }
  * )
  */
-class DefaultMap extends OaiMetadataMapBase
-{
+class DefaultMap extends OaiMetadataMapBase {
 
-    /**
-     *
-     */
-    public function getMetadataWrapper()
-    {
+  /**
+   *
+   */
+  public function getMetadataFormat() {
+    return [
+      'metadataPrefix' => 'oai_raw',
+      'schema' => '',
+      'metadataNamespace' => '',
+    ];
 
-        return [
-        'oai_raw' => [],
-        ];
-    }
+  }
 
-    /**
-     * Method to transform the provided entity into the desired metadata record.
-     *
-     * @param \Drupal\Core\Entity\ContentEntityInterface $entity
-     *   the entity to transform.
-     *
-     * @return string
-     *   rendered XML.
-     */
-    public function transformRecord(ContentEntityInterface $entity)
-    {
-        $render_array['metadata_prefix'] = 'oai_raw';
-        foreach ($entity->getFields() as $field_id => $fieldItemList) {
-            if (!$fieldItemList->access() || $fieldItemList->isEmpty()) {
-                continue;
-            }
-            foreach ($fieldItemList as $item) {
-                $index = $item->mainPropertyName();
-                if ($index == 'target_id' && !empty($item->entity)) {
-                    $value = $item->entity->label();
-                } else {
-                    $value = $item->getValue()[$index];
-                }
-                $render_array['elements'][$field_id][] = $value;
-            }
+  /**
+   *
+   */
+  public function getMetadataWrapper() {
+
+    return [
+      'oai_raw' => [],
+    ];
+  }
+
+  /**
+   * Method to transform the provided entity into the desired metadata record.
+   *
+   * @param \Drupal\Core\Entity\ContentEntityInterface $entity
+   *   the entity to transform.
+   *
+   * @return string
+   *   rendered XML.
+   */
+  public function transformRecord(ContentEntityInterface $entity) {
+    $render_array['metadata_prefix'] = 'oai_raw';
+    foreach ($entity->getFields() as $field_id => $fieldItemList) {
+      if (!$fieldItemList->access() || $fieldItemList->isEmpty()) {
+        continue;
+      }
+      foreach ($fieldItemList as $item) {
+        $index = $item->mainPropertyName();
+        if ($index == 'target_id' && !empty($item->entity)) {
+          $value = $item->entity->label();
         }
-        return parent::build($render_array);
+        else {
+          $value = $item->getValue()[$index];
+        }
+        $render_array['elements'][$field_id][] = $value;
+      }
     }
+    return parent::build($render_array);
+  }
 
 }
