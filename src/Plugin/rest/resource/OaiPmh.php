@@ -7,6 +7,7 @@ use Drupal\rest\ModifiedResourceResponse;
 use Drupal\rest\Plugin\ResourceBase;
 use Drupal\rest\ResourceResponse;
 use Psr\Log\LoggerInterface;
+use Drupal\Core\Config\ImmutableConfig;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
 use Symfony\Component\HttpFoundation\Request;
@@ -84,6 +85,7 @@ class OaiPmh extends ResourceBase {
     $plugin_id,
     $plugin_definition,
     array $serializer_formats,
+    ImmutableConfig $config,
     LoggerInterface $logger,
     AccountProxyInterface $current_user,
     Request $currentRequest,
@@ -97,7 +99,6 @@ class OaiPmh extends ResourceBase {
 
     // read the config settings for this endpoint
     // and set some properties for this class from the config
-    $config = \Drupal::config('rest_oai_pmh.settings');
     $fields = [
       'bundle',
       'view_displays',
@@ -136,6 +137,7 @@ class OaiPmh extends ResourceBase {
       $plugin_id,
       $plugin_definition,
       $container->getParameter('serializer.formats'),
+      $container->get('config.factory')->get('rest_oai_pmh.settings'),
       $container->get('logger.factory')->get('rest_oai_pmh'),
       $container->get('current_user'),
       $container->get('request_stack')->getCurrentRequest(),
@@ -182,7 +184,7 @@ class OaiPmh extends ResourceBase {
       // if we do not have any entries in the cached table, the cache needs rebuilt.
       // Do so now instead of waiting on Drupal cron to avoid empty results
       if (\Drupal::database()->query('SELECT COUNT(*) FROM {rest_oai_pmh_record}')->fetchField() == 0) {
-        rest_oai_pmh_rebuild_entries();
+          rest_oai_pmh_rebuild_entries();
       }
       $this->response['request']['@verb'] = $this->verb = $verb;
       $this->{$verb}();
