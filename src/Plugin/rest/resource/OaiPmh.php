@@ -3,18 +3,14 @@
 namespace Drupal\rest_oai_pmh\Plugin\rest\resource;
 
 use Drupal\Core\Session\AccountProxyInterface;
-use Drupal\rest\ModifiedResourceResponse;
 use Drupal\rest\Plugin\ResourceBase;
 use Drupal\rest\ResourceResponse;
 use Psr\Log\LoggerInterface;
 use Drupal\Core\Config\ImmutableConfig;
 use Symfony\Component\DependencyInjection\ContainerInterface;
-use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
 use Symfony\Component\HttpFoundation\Request;
 use Drupal\Core\Extension\ModuleHandlerInterface;
 use Drupal\Core\Render\RenderContext;
-use Drupal\node\Entity\Node;
-use Drupal\views\Views;
 
 /**
  * Provides a resource to get view modes by entity and bundle.
@@ -96,9 +92,9 @@ class OaiPmh extends ResourceBase {
     $this->currentRequest = $currentRequest;
     $this->moduleHandler = $module_handler;
 
-
-    // read the config settings for this endpoint
-    // and set some properties for this class from the config
+    // Read the config settings for this endpoint
+    // and set some properties for this class from the config.
+    $config = \Drupal::config('rest_oai_pmh.settings');
     $fields = [
       'bundle',
       'view_displays',
@@ -108,21 +104,22 @@ class OaiPmh extends ResourceBase {
       'expiration',
       'support_sets',
       'mapping_source',
+      'metadata_map_plugins',
     ];
     foreach ($fields as $field) {
       $this->{$field} = $config->get($field);
     }
 
-    // make sure the path is always set
-    // if we don't have one, resort to default value
+    // Make sure the path is always set
+    // if we don't have one, resort to default value.
     if (!$this->repository_path) {
       $this->repository_path = self::OAI_DEFAULT_PATH;
     }
 
-    // create a key/value store for resumption tokens
+    // Create a key/value store for resumption tokens.
     $this->keyValueStore = \Drupal::keyValue('rest_oai_pmh.resumption_token');
     $this->next_token_id = $this->keyValueStore
-          ->get('next_token_id');
+      ->get('next_token_id');
     if (!$this->next_token_id) {
       $this->next_token_id = 1;
     }
@@ -155,7 +152,7 @@ class OaiPmh extends ResourceBase {
    *   Throws exception expected.
    */
   public function get() {
-    // init a basic response used by all verbs
+    // Init a basic response used by all verbs.
     $base_oai_url = $this->currentRequest->getSchemeAndHttpHost() . $this->repository_path;
     $this->response = [
       '@xmlns' => 'http://www.openarchives.org/OAI/2.0/',
@@ -164,8 +161,8 @@ class OaiPmh extends ResourceBase {
       '@name' => 'OAI-PMH',
       'responseDate' => gmdate(self::OAI_DATE_FORMAT, \Drupal::time()->getRequestTime()),
       'request' => [
-         'oai-dc-string' => $base_oai_url
-       ],
+        'oai-dc-string' => $base_oai_url,
+      ],
     ];
 
     $verb = $this->currentRequest->get('verb');
@@ -176,13 +173,13 @@ class OaiPmh extends ResourceBase {
       'ListIdentifiers',
       'ListMetadataFormats',
       'ListRecords',
-      'ListSets'
+      'ListSets',
     ];
-    // make sure a valid verb was passed in as a GET parameter
-    // if so, call the respective function implemented in this class
+    // Make sure a valid verb was passed in as a GET parameter
+    // if so, call the respective function implemented in this class.
     if (in_array($verb, $verbs)) {
-      // if we do not have any entries in the cached table, the cache needs rebuilt.
-      // Do so now instead of waiting on Drupal cron to avoid empty results
+      // If we do not have any entries in the cached table, the cache needs rebuilt.
+      // Do so now instead of waiting on Drupal cron to avoid empty results.
       if (\Drupal::database()->query('SELECT COUNT(*) FROM {rest_oai_pmh_record}')->fetchField() == 0) {
         $context = new RenderContext();
         \Drupal::service('renderer')->executeInRenderContext($context, function() {
@@ -192,23 +189,28 @@ class OaiPmh extends ResourceBase {
       $this->response['request']['@verb'] = $this->verb = $verb;
       $this->{$verb}();
     }
-    // if not a valid verb, print the error message
+    // If not a valid verb, print the error message.
     else {
-     $this->setError('badVerb', 'Value of the verb argument is not a legal OAI-PMH verb, the verb argument is missing, or the verb argument is repeated.');
+      $this->setError('badVerb', 'Value of the verb argument is not a legal OAI-PMH verb, the verb argument is missing, or the verb argument is repeated.');
     }
 
     $response = new ResourceResponse($this->response, 200);
 
     // @todo for now disabling cache altogether until can come up with sensible method if there is one
-    $response->addCacheableDependency([
-      '#cache' => [
-        'max-age' => 0
-      ]
-    ]);
+    $response->addCacheableDependency(
+        [
+          '#cache' => [
+            'max-age' => 0,
+          ],
+        ]
+    );
 
     return $response;
   }
 
+  /**
+   *
+   */
   protected function GetRecord() {
 
     $identifier = $this->currentRequest->get('identifier');
@@ -220,41 +222,46 @@ class OaiPmh extends ResourceBase {
 
     $components = explode(':', $identifier);
     $host = $this->currentRequest->getHttpHost();
-    // remove port from hostname
+    // Remove port from hostname.
     if (strpos($host, ':') !== FALSE) {
       $host_parts = explode(':', $host);
       $host = $host_parts[0];
     }
 
-    // check to ensure the identifier is valid
-    // and an entity was loaded
-    if (count($components) != 3 ||
-      $components[0] !== 'oai' ||
-      $components[1] !== $host ||
-      empty($this->entity)) {
+    // Check to ensure the identifier is valid
+    // and an entity was loaded.
+    if (count($components) != 3
+        || $components[0] !== 'oai'
+        || $components[1] !== $host
+        || empty($this->entity)
+    ) {
       $this->setError('idDoesNotExist', 'The value of the identifier argument is unknown or illegal in this repository.');
     }
-
 
     $this->metadataPrefix = $this->currentRequest->get('metadataPrefix');
     $this->checkMetadataPrefix();
 
-    // check if an error was thrown
+    // Check if an error was thrown.
     if ($this->error) {
-      // per OAI specs, remove the verb from the response
+      // Per OAI specs, remove the verb from the response.
       unset($this->response['request']['@verb']);
     }
-    // if no error, print the record
+    // If no error, print the record.
     else {
       $this->response['request']['@metadataPrefix'] = $this->metadataPrefix;
       $this->response[$this->verb]['record'] = $this->getRecordById($identifier);
     }
   }
 
+  /**
+   *
+   */
   protected function Identify() {
-    // query our table to see the oldest entity exposed to OAI
-    $earliest_date = \Drupal::database()->query('SELECT MIN(created)
-      FROM {rest_oai_pmh_record}')->fetchField();
+    // Query our table to see the oldest entity exposed to OAI.
+    $earliest_date = \Drupal::database()->query(
+        'SELECT MIN(created)
+      FROM {rest_oai_pmh_record}'
+    )->fetchField();
 
     $this->response[$this->verb] = [
       'repositoryName' => $this->repository_name,
@@ -271,17 +278,28 @@ class OaiPmh extends ResourceBase {
           'scheme' => 'oai',
           'repositoryIdentifier' => $this->currentRequest->getHttpHost(),
           'delimiter' => ':',
-          'sampleIdentifier' => 'oai:' . $this->currentRequest->getHttpHost() . ':node-1'
-        ]
-      ]
+          'sampleIdentifier' => 'oai:' . $this->currentRequest->getHttpHost() . ':node-1',
+        ],
+      ],
     ];
   }
 
+  /**
+   *
+   */
   protected function ListMetadataFormats() {
     // @todo support more metadata formats
-    $this->response[$this->verb]['metadataFormat'] = $this->getMetadataFormats();
+    $formats = [];
+    foreach ($this->getMetadataFormats() as $format) {
+      $plugin = $this->getMetadataPlugin($format);
+      $formats[] = $plugin->getMetadataFormat();
+    }
+    $this->response[$this->verb]['metadataFormat'] = $formats;
   }
 
+  /**
+   *
+   */
   protected function ListIdentifiers() {
     $entities = $this->getRecordIds();
     foreach ($entities as $entity) {
@@ -292,6 +310,9 @@ class OaiPmh extends ResourceBase {
     }
   }
 
+  /**
+   *
+   */
   protected function ListRecords() {
     $entities = $this->getRecordIds();
     foreach ($entities as $entity) {
@@ -302,8 +323,11 @@ class OaiPmh extends ResourceBase {
     }
   }
 
+  /**
+   *
+   */
   protected function ListSets() {
-    // throw an error if no Views set for OAI, or sets are explicitly not supported
+    // Throw an error if no Views set for OAI, or sets are explicitly not supported.
     if (count($this->view_displays) == 0 || empty($this->support_sets)) {
       $this->setError('noSetHierarchy', 'The repository does not support sets.');
       return;
@@ -317,7 +341,7 @@ class OaiPmh extends ResourceBase {
         'set' => [
           'setSpec' => $set->set_id,
           'setName' => $set->label,
-        ]
+        ],
       ];
     }
   }
@@ -326,16 +350,19 @@ class OaiPmh extends ResourceBase {
    * Helper function.
    *
    * A lot of different scenarios can cause an error based on GET parameters supplied
-   * so have a standard convention to record these errors and print them in XML
+   * so have a standard convention to record these errors and print them in XML.
    */
   protected function setError($code, $string) {
     $this->response['error'][] = [
       '@code' => $code,
-      'oai-dc-string' =>  $string,
+      'oai-dc-string' => $string,
     ];
     $this->error = TRUE;
   }
 
+  /**
+   *
+   */
   protected function getRecordById($identifier) {
     $record = [];
     $record['header'] = $this->getHeaderById($identifier);
@@ -344,19 +371,22 @@ class OaiPmh extends ResourceBase {
     return $record;
   }
 
+  /**
+   *
+   */
   protected function getHeaderById($identifier) {
     $header = [
       'identifier' => $identifier,
     ];
 
-    // if the entity being exposed to OAI has a changed field
-    // print that in the header
+    // If the entity being exposed to OAI has a changed field
+    // print that in the header.
     if ($this->entity->hasField('changed')) {
       $header['datestamp'] = gmdate(self::OAI_DATE_FORMAT, $this->entity->changed->value);
     }
 
-    // if sets are supported
-    // print the sets this record belongs to
+    // If sets are supported
+    // print the sets this record belongs to.
     if (!empty($this->oai_entity) && !empty($this->support_sets)) {
       $sets = explode(',', $this->oai_entity->sets);
       foreach ($sets as $set) {
@@ -366,34 +396,30 @@ class OaiPmh extends ResourceBase {
     return $header;
   }
 
+  /**
+   *
+   */
   protected function getRecordMetadata() {
     $this->metadataPrefix = $this->currentRequest->get('metadataPrefix');
-    $metadata = $this->getMetadataWrapper();
 
-    // @see https://www.lullabot.com/articles/early-rendering-a-lesson-in-debugging-drupal-8
-    // can't just call metatag_generate_entity_metatags() here since it renders node token values,
-    // which in turn screwing up caching on the REST resource
-    // @todo ensure caching is working properly here
+    // Transform the record with the relevant plugin.
+    // Process the transformation to isolate any early rendering.
     $context = new RenderContext();
-    $xml = \Drupal::service('renderer')->executeInRenderContext($context, function() {
-      $element = [
-        '#theme' => 'rest_oai_pmh_record__' . $this->metadataPrefix,
-        '#entity_type' => $this->entity->getEntityTypeId(),
-        '#entity_id' => $this->entity->id(),
-        '#entity' => $this->entity,
-        '#mapping_source' => $this->mapping_source,
-        '#metadata_prefix' =>  $this->metadataPrefix,
-      ];
-
-      return render($element);
-    });
-
-    $key = key($metadata);
-    $metadata[$key]['metadata-xml'] = trim($xml);
-
-    return $metadata;
+    $result = \Drupal::service('renderer')->executeInRenderContext(
+        $context, function () {
+            $mapping_plugin = $this->getMetadataPlugin($this->metadataPrefix);
+            $record = $mapping_plugin->transformRecord($this->entity);
+            $metadata = $mapping_plugin->getMetadataWrapper();
+            $metadata[$this->metadataPrefix]['metadata-xml'] = trim($record);
+            return $metadata;
+        }
+    );
+    return $result;
   }
 
+  /**
+   *
+   */
   private function getRecordIds() {
     $verb = $this->response['request']['@verb'];
     $resumption_token = $this->currentRequest->get('resumptionToken');
@@ -404,13 +430,14 @@ class OaiPmh extends ResourceBase {
     $cursor = 0;
     $completeListSize = 0;
     $views_total = [];
-    // if a resumption token was passed in the URL, try to find it in the key store
+    // If a resumption token was passed in the URL, try to find it in the key store.
     if ($resumption_token) {
       $token = $this->keyValueStore->get($resumption_token);
-      // if we found a token and it's not expired, get the values needed
-      if ($token &&
-        $token['expires'] > \Drupal::time()->getRequestTime() &&
-        $token['verb'] == $this->verb) {
+      // If we found a token and it's not expired, get the values needed.
+      if ($token
+        && $token['expires'] > \Drupal::time()->getRequestTime()
+        && $token['verb'] == $this->verb
+      ) {
         $this->metadataPrefix = $token['metadata_prefix'];
         $cursor = $token['cursor'];
         $set = $token['set'];
@@ -419,15 +446,15 @@ class OaiPmh extends ResourceBase {
         $completeListSize = $token['completeListSize'];
       }
       else {
-        // if we found a token, and we're here, it means the token is expired
-        // delete it from key value store
+        // If we found a token, and we're here, it means the token is expired
+        // delete it from key value store.
         if ($token && $token['expires'] < \Drupal::time()->getRequestTime()) {
           $this->keyValueStore->delete($resumption_token);
         }
         $this->setError('badResumptionToken', 'The value of the resumptionToken argument is invalid or expired.');
       }
     }
-    // if a set parameter was passed, but this OAI endpoint doesn't support sets, throw error
+    // If a set parameter was passed, but this OAI endpoint doesn't support sets, throw error.
     elseif ((empty($this->support_sets) || empty($this->view_displays)) && $set) {
       $this->setError('noSetHierarchy', 'The repository does not support sets.');
     }
@@ -438,13 +465,13 @@ class OaiPmh extends ResourceBase {
       return [];
     }
     else {
-      // our {rest_oai_pmh_set} stores the pager information for the Views exposed to OAI
-      // to play it safe, make the limit // max results returned be the smallest pager size for all the Views exposed to OAI
+      // Our {rest_oai_pmh_set} stores the pager information for the Views exposed to OAI
+      // to play it safe, make the limit // max results returned be the smallest pager size for all the Views exposed to OAI.
       $end = \Drupal::database()->query('SELECT MIN(`pager_limit`) FROM {rest_oai_pmh_set}')->fetchField();
       $this->response['request']['@metadataPrefix'] = $this->metadataPrefix;
     }
 
-    // query our {rest_oai_pmh_*} tables to get records that are exposed to OAI
+    // Query our {rest_oai_pmh_*} tables to get records that are exposed to OAI.
     $query = \Drupal::database()->select('rest_oai_pmh_record', 'r');
     $query->innerJoin('rest_oai_pmh_member', 'm', 'm.entity_id = r.entity_id AND m.entity_type = r.entity_type');
     $query->innerJoin('rest_oai_pmh_set', 's', 's.set_id = m.set_id');
@@ -452,35 +479,35 @@ class OaiPmh extends ResourceBase {
     $query->addExpression('GROUP_CONCAT(m.set_id)', 'sets');
     $query->groupBy('r.entity_type, r.entity_id');
 
-    // if set ID was passed in URL, filter on that
-    // otherwise filter on all sets as defined on set field
+    // If set ID was passed in URL, filter on that
+    // otherwise filter on all sets as defined on set field.
     if ($set) {
       $this->set_ids = [$set];
       $query->condition('m.set_id', $set);
     }
 
-    // if from was passed as  GET parameter, filter on that
+    // If from was passed as  GET parameter, filter on that.
     if ($from) {
       $this->response['request']['@from'] = $from;
       $query->condition('changed', strtotime($from), '>=');
     }
-    // if until was passed as  GET parameter, filter on that
+    // If until was passed as  GET parameter, filter on that.
     if ($until) {
       $this->response['request']['@until'] = $until;
       $query->condition('changed', strtotime($until), '<=');
     }
 
-    // if we haven't checked the complete list size yet (i.e. this isn't a call from a resumption token)
-    // get the complete list size for this request
+    // If we haven't checked the complete list size yet (i.e. this isn't a call from a resumption token)
+    // get the complete list size for this request.
     if (empty($completeListSize)) {
       $completeListSize = $query->countQuery()->execute()->fetchField();
     }
 
     $this->response[$this->verb]['resumptionToken'] = [];
 
-    // if the total results are more than what was returned here, add a resumption token
+    // If the total results are more than what was returned here, add a resumption token.
     if ($completeListSize > ($cursor + $end) && $end > 0) {
-      // set the expiration date per the admin settings
+      // Set the expiration date per the admin settings.
       $expires = \Drupal::time()->getRequestTime() + $this->expiration;
 
       $this->response[$this->verb]['resumptionToken'] += [
@@ -490,7 +517,7 @@ class OaiPmh extends ResourceBase {
         '@expirationDate' => gmdate(self::OAI_DATE_FORMAT, $expires),
       ];
 
-      // save the settings for the resumption token that will be shown in these results
+      // Save the settings for the resumption token that will be shown in these results.
       $token = [
         'metadata_prefix' => $this->metadataPrefix,
         'set' => $set,
@@ -503,13 +530,13 @@ class OaiPmh extends ResourceBase {
       ];
       $this->keyValueStore->set($this->next_token_id, $token);
 
-      // increment the token id for the next resumption token that will show
+      // Increment the token id for the next resumption token that will show.
       // @todo should we incorporate semaphores here to avoid possible duplicates?
       $this->next_token_id += 1;
       $this->keyValueStore->set('next_token_id', $this->next_token_id);
     }
 
-    // put a pager on the query if there's a pager on the Views exposed to OAI
+    // Put a pager on the query if there's a pager on the Views exposed to OAI.
     if ($end > 0) {
       $query->range($cursor, $end);
     }
@@ -520,7 +547,7 @@ class OaiPmh extends ResourceBase {
   }
 
   /**
-   * Helper function. Create an OAI identifier for the given entity
+   * Helper function. Create an OAI identifier for the given entity.
    */
   protected function buildIdentifier($entity) {
     $identifier = 'oai:';
@@ -533,11 +560,12 @@ class OaiPmh extends ResourceBase {
   }
 
   /**
-   * Helper function. Load an entity to be printed in OAI endpoint
+   * Helper function. Load an entity to be printed in OAI endpoint.
    *
-   *
-   * @param $identifier - string of OAI identifier for a record
-   * @param $skip_check - boolean on whether to ensure entity being passed in $identifier is indeed exposed to OAI. Some OAI verbs, like ListRecords, are querying only the entities that are indeed exposed to OAI. Other verbs, like GetRecord, get an identifier passed and are asked for the metadata for that record. So need to check that the entity is indeed in OAI
+   * @param $identifier
+   *   - string of OAI identifier for a record
+   * @param $skip_check
+   *   - boolean on whether to ensure entity being passed in $identifier is indeed exposed to OAI. Some OAI verbs, like ListRecords, are querying only the entities that are indeed exposed to OAI. Other verbs, like GetRecord, get an identifier passed and are asked for the metadata for that record. So need to check that the entity is indeed in OAI
    */
   protected function loadEntity($identifier, $skip_check = FALSE) {
     $entity = FALSE;
@@ -547,115 +575,81 @@ class OaiPmh extends ResourceBase {
       list($entity_type, $entity_id) = explode('-', $id);
 
       try {
-        // if we need to check whether the entity is in OAI, do so
+        // If we need to check whether the entity is in OAI, do so
         // we don't do this for ListRecords b/c we already know the entity is in OAI since we queried it from the table we're checking against
         // but for GetRecord, the user is passing the identifier, so we need to ensure it's legit
-        // basically just a performance enhancement to not always check
+        // basically just a performance enhancement to not always check.
         if (!$skip_check) {
 
-          // fetch all sets the record belongs to
+          // Fetch all sets the record belongs to
           // even if sets aren't supported by OAI, our system still stores the set information
           // so it's a reliable method to check
-          // PLUS we get all the sets the record belongs to to print in <header>
+          // PLUS we get all the sets the record belongs to to print in <header>.
           $d_args = [
             ':type' => $entity_type,
-            ':id' => $entity_id
+            ':id' => $entity_id,
           ];
-          $in_oai_view = \Drupal::database()->query('SELECT GROUP_CONCAT(set_id) FROM {rest_oai_pmh_record} r
+          $in_oai_view = \Drupal::database()->query(
+          'SELECT GROUP_CONCAT(set_id) FROM {rest_oai_pmh_record} r
             INNER JOIN {rest_oai_pmh_member} m ON m.entity_id = r.entity_id AND m.entity_type = r.entity_type
             WHERE r.entity_id = :id
               AND r.entity_type = :type
-            GROUP BY r.entity_id', $d_args)->fetchField();
+            GROUP BY r.entity_id', $d_args
+          )->fetchField();
 
-          // store the set membership from out table so we can print set membership in <header>
-          $this->oai_entity = (object)['sets' => $in_oai_view];
+          // Store the set membership from out table so we can print set membership in <header>.
+          $this->oai_entity = (object) ['sets' => $in_oai_view];
         }
 
-        // if we're skipping the OAI check OR we didn't skip the check, and the record is in OAI
-        // load the entity
+        // If we're skipping the OAI check OR we didn't skip the check, and the record is in OAI
+        // load the entity.
         if ($skip_check || $in_oai_view) {
           $storage = \Drupal::entityTypeManager()->getStorage($entity_type);
           $entity = $storage->load($entity_id);
         }
       }
-      catch (Exception $e) {}
+      catch (Exception $e) {
+      }
     }
 
-    // make sure the entity was loaded properly
-    // AND the person viewing has access
+    // Make sure the entity was loaded properly
+    // AND the person viewing has access.
     $this->entity = $entity && $entity->access('view') ? $entity : FALSE;
   }
 
+  /**
+   *
+   */
   protected function checkMetadataPrefix() {
-    // if no metadata prefix passed into request, throw error
+    // If no metadata prefix passed into request, throw error.
     if (empty($this->metadataPrefix)) {
       $this->setError('badArgument', 'Missing required argument metadataPrefix.');
     }
-    // else go through all the supported metadata prefixes and see if the value passed is supported
-    else {
-      $supported = FALSE;
-      foreach ($this->getMetadataFormats() as $format) {
-        if ($format['metadataPrefix'] === $this->metadataPrefix) {
-          $supported = TRUE;
-          break;
-        }
-      }
-      if (!$supported) {
+    // Do we have a plugin configured for it?
+    elseif (!in_array($this->metadataPrefix, $this->getMetadataFormats())) {
         $this->setError('cannotDisseminateFormat', 'The metadata format identified by the value given for the metadataPrefix argument is not supported by the item or by the repository.');
-      }
     }
-  }
-
-  protected function getMetadataFormats() {
-    $formats = [];
-    $formats[] = [
-      'metadataPrefix' => 'oai_dc',
-      'schema' => 'http://www.openarchives.org/OAI/2.0/oai_dc.xsd',
-      'metadataNamespace' => 'http://www.openarchives.org/OAI/2.0/oai_dc/'
-    ];
-
-    $additional_formats = [];
-    $this->moduleHandler->alter('rest_oai_pmh_metadata_format', $additional_formats);
-
-    foreach ($additional_formats as $format) {
-      $formats[] = $format['format'];
-    }
-
-    return array_values($formats);
   }
 
   /**
-   * Helper function. Get the XML element that will wrap the metadata for each record
+   * Returns the configured plugin associated with a given metadata prefix.
    */
-  protected function getMetadataWrapper() {
-    $metadata_wrapper = [];
-    // if requesting oai_dc, fulfill the request
-    if ($this->metadataPrefix === 'oai_dc') {
-      $metadata_wrapper['oai_dc:dc'] = [
-        '@xmlns:oai_dc' => 'http://www.openarchives.org/OAI/2.0/oai_dc/',
-        '@xmlns:dc' => 'http://purl.org/dc/elements/1.1/',
-        '@xmlns:xsi' => 'http://www.w3.org/2001/XMLSchema-instance',
-        '@xsi:schemaLocation' => 'http://www.openarchives.org/OAI/2.0/oai_dc/ http://www.openarchives.org/OAI/2.0/oai_dc.xsd',
-      ];
+  protected function getMetadataPlugin(string $metadata_prefix) {
+    if (empty($this->metadata_map_plugins[$metadata_prefix])) {
+      // Should probably throw an exception...
+      return FALSE;
     }
-    // else, get
-    else {
-      $formats = [];
-      $this->moduleHandler->alter('rest_oai_pmh_metadata_format', $formats);
-      foreach ($formats as $key => $format) {
-        if ($format['format']['metadataPrefix'] !== $this->metadataPrefix) {
-          unset($formats[$key]);
-        }
-      }
-      if (count($formats) != 1) {
-        $this->setError('cannotDisseminateFormat', 'The metadata format identified by the value given for the metadataPrefix argument is not supported by the item or by the repository.');
-        return;
-      }
-      else {
-        $metadata_wrapper = current($formats)['wrapper'];
-      }
-    }
-
-    return $metadata_wrapper;
+    $mapping_plugin_manager = \Drupal::service('plugin.manager.oai_metadata_map');
+    return $mapping_plugin_manager->createInstance($this->metadata_map_plugins[$metadata_prefix]);
   }
+
+  /**
+   * Returns a list of available metadata formats.
+   *
+   * @return array available metadata formats.
+   */
+  protected function getMetadataFormats() {
+    return array_keys(array_filter($this->metadata_map_plugins));
+  }
+
 }
