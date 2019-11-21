@@ -162,3 +162,23 @@ function rest_oai_pmh_update_8003() {
     $schema->addField($table, $new_limit_field, $field_spec);
   }
 }
+
+
+/**
+ * Update storage config for new plugin storage
+ */
+function rest_oai_pmh_update_8004() {
+  $config = \Drupal::service('config.factory')->getEditable('rest_oai_pmh.settings');
+  switch($config->get('mapping_source')) {
+    case 'metatag_dc':
+      $mapping_source = 'dublin_core_metatag';
+      break;
+    default:
+      $mapping_source = 'dublin_core_rdf';
+  }
+
+  $config->set('metadata_map_plugins', [
+    'oai_dc' => $mapping_source
+  ]);
+  $config->save();
+}
