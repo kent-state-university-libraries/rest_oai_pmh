@@ -400,7 +400,9 @@ class OaiPmh extends ResourceBase {
    *
    */
   protected function getRecordMetadata() {
-    $this->metadataPrefix = $this->currentRequest->get('metadataPrefix');
+    if (empty($this->metadataPrefix)) {
+      $this->metadataPrefix = $this->currentRequest->get('metadataPrefix');
+    }
 
     // Transform the record with the relevant plugin.
     // Process the transformation to isolate any early rendering.
