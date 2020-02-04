@@ -76,6 +76,18 @@ class DublinCoreRdf extends OaiMetadataMapBase {
         // See if the field is mapped to a property in this schema
         // e.g oai_dc only will print Dublin Core tags.
         foreach ($field_mapping['properties'] as $property) {
+          // DC /elements/1.1 may be prefixed with dc11
+          // and dcterms may be prefixed accordingly
+          // so just transform the property value to a standard namespace (dc)
+          // to easily map properties to their respective
+          // http://purl.org/dc/elements/1.1/ value
+          $property_components = explode(':', $property);
+          if (isset($property_components[0]) &&
+            in_array($property_components[0], ['dc11', 'dcterms'])) {
+            $property_components[0] = 'dc';
+            $property = implode(':', $property_components);
+          }
+
           // If this is a DC /elements/1.1, set the element.
           if (in_array($property, $allowed_properties)) {
             $element = $property;
@@ -89,7 +101,6 @@ class DublinCoreRdf extends OaiMetadataMapBase {
             break;
           }
         }
-
       }
       // If $element is set, we have a valid property.
       if ($element) {
@@ -142,8 +153,8 @@ class DublinCoreRdf extends OaiMetadataMapBase {
           'dc:title',
           'dc:type',
 
-            // Plus http://purl.org/dc/terms
-            // mapped to their respective http://purl.org/dc/elements/1.1/
+          // Plus http://purl.org/dc/terms
+          // mapped to their respective http://purl.org/dc/elements/1.1/
           'dc:abstract' => 'dc:description',
           'dc:accessRights' => 'dc:rights',
           'dc:alternative' => 'dc:title',
