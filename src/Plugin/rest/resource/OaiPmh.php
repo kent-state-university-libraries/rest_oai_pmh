@@ -463,22 +463,33 @@ class OaiPmh extends ResourceBase {
 
     $this->checkMetadataPrefix();
 
+    $db_conn = \Drupal::database();
+
     if ($this->error) {
       return [];
     }
     else {
       // Our {rest_oai_pmh_set} stores the pager information for the Views exposed to OAI
       // to play it safe, make the limit // max results returned be the smallest pager size for all the Views exposed to OAI.
-      $end = \Drupal::database()->query('SELECT MIN(`pager_limit`) FROM {rest_oai_pmh_set}')->fetchField();
+      $end = $db_conn->driver() !== 'pgsql' ?
+         $db_conn->query('SELECT MIN(`pager_limit`) FROM {rest_oai_pmh_set}')->fetchField() :
+         // XXX: The backticks are interpreted as another operator in PostgreSQL.
+         $db_conn->query('SELECT MIN(pager_limit) FROM {rest_oai_pmh_set}')->fetchField();
       $this->response['request']['@metadataPrefix'] = $this->metadataPrefix;
     }
 
     // Query our {rest_oai_pmh_*} tables to get records that are exposed to OAI.
-    $query = \Drupal::database()->select('rest_oai_pmh_record', 'r');
+    $query = $db_conn->select('rest_oai_pmh_record', 'r');
     $query->innerJoin('rest_oai_pmh_member', 'm', 'm.entity_id = r.entity_id AND m.entity_type = r.entity_type');
     $query->innerJoin('rest_oai_pmh_set', 's', 's.set_id = m.set_id');
     $query->fields('r', ['entity_id', 'entity_type']);
-    $query->addExpression('GROUP_CONCAT(m.set_id)', 'sets');
+    if ($db_conn->driver() !== 'pgsql') {
+      $query->addExpression('GROUP_CONCAT(m.set_id)', 'sets');
+    }
+    else {
+      // XXX: GROUP_CONCAT() doesn't exist in PostgreSQL.
+      $query->addExpression("STRING_AGG(m.set_id, ',')", 'sets');
+    }
     $query->groupBy('r.entity_type, r.entity_id');
 
     // If set ID was passed in URL, filter on that
@@ -591,13 +602,26 @@ class OaiPmh extends ResourceBase {
             ':type' => $entity_type,
             ':id' => $entity_id,
           ];
-          $in_oai_view = \Drupal::database()->query(
-          'SELECT GROUP_CONCAT(set_id) FROM {rest_oai_pmh_record} r
-            INNER JOIN {rest_oai_pmh_member} m ON m.entity_id = r.entity_id AND m.entity_type = r.entity_type
-            WHERE r.entity_id = :id
-              AND r.entity_type = :type
-            GROUP BY r.entity_id', $d_args
-          )->fetchField();
+          $db_conn = \Drupal::database();
+          if ($db_conn->driver() !== 'pgsql') {
+            $in_oai_view = $db_conn->query(
+            'SELECT GROUP_CONCAT(set_id) FROM {rest_oai_pmh_record} r
+              INNER JOIN {rest_oai_pmh_member} m ON m.entity_id = r.entity_id AND m.entity_type = r.entity_type
+              WHERE r.entity_id = :id
+                AND r.entity_type = :type
+              GROUP BY r.entity_id', $d_args
+            )->fetchField();
+          }
+          else {
+            // XXX: GROUP_CONCAT() doesn't exist in PostgreSQL.
+            $in_oai_view = $db_conn->query(
+            'SELECT STRING_AGG(set_id, \',\') FROM {rest_oai_pmh_record} r
+              INNER JOIN {rest_oai_pmh_member} m ON m.entity_id = r.entity_id AND m.entity_type = r.entity_type
+              WHERE r.entity_id = :id
+                AND r.entity_type = :type
+              GROUP BY r.entity_id', $d_args
+            )->fetchField();
+          }
 
           // Store the set membership from out table so we can print set membership in <header>.
           $this->oai_entity = (object) ['sets' => $in_oai_view];
