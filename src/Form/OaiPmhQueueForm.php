@@ -88,7 +88,7 @@ class OaiPmhQueueForm extends FormBase {
       $t_args = [
         ':link' => Url::fromRoute('rest.oai_pmh.GET', [], $url_options)->toString()
       ];
-      drupal_set_message($this->t('Successfully rebuilt your OAI-PMH entries. You can now see your records at <a href=":link">:link</a>', $t_args));
+      $this->messenger()->addStatus($this->t('Successfully rebuilt your OAI-PMH entries. You can now see your records at <a href=":link">:link</a>', $t_args));
     }
     else {
      $url_options = [
@@ -97,7 +97,7 @@ class OaiPmhQueueForm extends FormBase {
       $t_args = [
         ':link' => Url::fromRoute('dblog.overview', [], $url_options)->toString()
       ];
-      drupal_set_message($this->t('Could not rebuild your OAI-PMH endpoint. Please check your <a href=":link">Recent log messages</a>', $t_args), 'error');
+      $this->messenger()->addError($this->t('Could not rebuild your OAI-PMH endpoint. Please check your <a href=":link">Recent log messages</a>', $t_args));
     }
   }
 }

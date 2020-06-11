@@ -266,9 +266,6 @@ class RestOaiPmhSettingsForm extends ConfigFormBase {
     rest_oai_pmh_cache_views($rebuild_views);
   }
 
-  /**
-   *
-   */
   protected function updateRestEndpointPath($path) {
     $this->config('rest_oai_pmh.settings')
       ->set('repository_path', $path)
