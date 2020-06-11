@@ -345,4 +345,6 @@ function rest_oai_pmh_rebuild_entries() {
       watchdog_exception('rest_oai_pmh', $e);
     }
   }
+
+  return $item;
 }

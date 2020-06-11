@@ -73,7 +73,7 @@ class OaiPmhQueueForm extends FormBase {
    */
   public function submitForm(array &$form, FormStateInterface $form_state) {
 
-    rest_oai_pmh_rebuild_entries();
+    $item = rest_oai_pmh_rebuild_entries();
 
     // if no more items exist in the queue (we broke the while loop)
     // print a success message, linking to the OAI endpoint
