@@ -72,32 +72,25 @@ class OaiPmhQueueForm extends FormBase {
    * {@inheritdoc}
    */
   public function submitForm(array &$form, FormStateInterface $form_state) {
+    rest_oai_pmh_cache_views();
 
-    $item = rest_oai_pmh_rebuild_entries();
+    $queue = \Drupal::service('queue')->get('rest_oai_pmh_views_cache_cron');
+    $operations = [];
+    while ($item = $queue->claimItem()) {
+      $operations[] = [
+        'rest_oai_pmh_process_queue',
+        [$item]
+      ];
+    }
+    $batch = [
+      'operations' => $operations,
+      'finished' => 'rest_oai_pmh_batch_finished',
+      'title' => $this->t('Processing OAI rebuild'),
+      'init_message' => $this->t('OAI rebuild is starting.'),
+      'progress_message' => $this->t('Processed @current out of @total.'),
+      'error_message' => $this->t('OAI rebuild has encountered an error.'),
+    ];
 
-    // if no more items exist in the queue (we broke the while loop)
-    // print a success message, linking to the OAI endpoint
-    if (!$item) {
-      $url_options = [
-        'absolute' => TRUE,
-        'query' => [
-          'verb' => 'ListRecords',
-          'metadataPrefix' => 'oai_dc',
-        ]
-      ];
-      $t_args = [
-        ':link' => Url::fromRoute('rest.oai_pmh.GET', [], $url_options)->toString()
-      ];
-      $this->messenger()->addStatus($this->t('Successfully rebuilt your OAI-PMH entries. You can now see your records at <a href=":link">:link</a>', $t_args));
-    }
-    else {
-     $url_options = [
-        'absolute' => TRUE,
-      ];
-      $t_args = [
-        ':link' => Url::fromRoute('dblog.overview', [], $url_options)->toString()
-      ];
-      $this->messenger()->addError($this->t('Could not rebuild your OAI-PMH endpoint. Please check your <a href=":link">Recent log messages</a>', $t_args));
-    }
+    batch_set($batch);
   }
 }

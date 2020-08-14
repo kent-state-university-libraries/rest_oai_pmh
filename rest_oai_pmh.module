@@ -278,22 +278,51 @@ function rest_oai_pmh_rebuild_entries() {
   rest_oai_pmh_cache_views();
 
   $queue = \Drupal::service('queue')->get('rest_oai_pmh_views_cache_cron');
-  $queue_worker = \Drupal::service('plugin.manager.queue_worker')->createInstance('rest_oai_pmh_views_cache_cron');
-
   while ($item = $queue->claimItem()) {
-    try {
-      $queue_worker->processItem($item->data);
-      $queue->deleteItem($item);
-    }
-    catch (SuspendQueueException $e) {
-      $queue->releaseItem($item);
-      watchdog_exception('rest_oai_pmh', $e);
-      break;
-    }
-    catch (\Exception $e) {
-      watchdog_exception('rest_oai_pmh', $e);
-    }
+    rest_oai_pmh_process_queue($item);
   }
 
   return $item;
+}
+
+function rest_oai_pmh_process_queue($item) {
+  $queue = \Drupal::service('queue')->get('rest_oai_pmh_views_cache_cron');
+  $queue_worker = \Drupal::service('plugin.manager.queue_worker')->createInstance('rest_oai_pmh_views_cache_cron');
+  try {
+    $queue_worker->processItem($item->data);
+    $queue->deleteItem($item);
+  }
+  catch (SuspendQueueException $e) {
+    $queue->releaseItem($item);
+    watchdog_exception('rest_oai_pmh', $e);
+  }
+  catch (\Exception $e) {
+    watchdog_exception('rest_oai_pmh', $e);
+  }
+}
+
+function rest_oai_pmh_batch_finished($success, $results, $operations) {
+  $messenger = \Drupal::messenger();
+  if ($success) {
+    $url_options = [
+      'absolute' => TRUE,
+      'query' => [
+        'verb' => 'ListRecords',
+        'metadataPrefix' => 'oai_dc',
+      ]
+    ];
+    $t_args = [
+      ':link' => \Drupal\Core\Url::fromRoute('rest.oai_pmh.GET', [], $url_options)->toString()
+    ];
+    $messenger->addStatus(t('Successfully rebuilt your OAI-PMH entries. You can now see your records at <a href=":link">:link</a>', $t_args));
+  }
+  else {
+    $url_options = [
+      'absolute' => TRUE,
+    ];
+    $t_args = [
+      ':link' => \Drupal\Core\Url::fromRoute('dblog.overview', [], $url_options)->toString()
+    ];
+    $messenger->addError(t('Could not rebuild your OAI-PMH endpoint. Please check your <a href=":link">Recent log messages</a>', $t_args));
+  }
 }
