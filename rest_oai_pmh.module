@@ -116,10 +116,8 @@ function rest_oai_pmh_cache_views($view_displays = FALSE, $queue_name = 'rest_oa
     $view = \Drupal\views\Views::getView($view_id);
     $view->setDisplay($display_id);
 
-    $data = [
-      'view_id' => $view_id,
-      'display_id' => $display_id,
-    ];
+    $has_sets = FALSE;
+
     // go through all the contextual filters for this View display
     foreach ($view->display_handler->getHandlers('argument') as $contextual_filter) {
       $definition = $contextual_filter->definition;
@@ -161,13 +159,37 @@ function rest_oai_pmh_cache_views($view_displays = FALSE, $queue_name = 'rest_oa
         foreach ($ids as $id) {
           $entity = $entity_storage->load($id);
           if ($entity) {
-            $data['sets'][] = [
+            $has_sets = TRUE;
+            $data = [
+              'view_id' => $view_id,
+              'display_id' => $display_id,
               'arguments' => [$entity->id()],
               'set_entity_type' => $definition['entity_type'],
               'set_id' => $definition['entity_type'] . ':' . $entity->id(),
               'set_label' => $entity->label(),
               'view_display' => $view_display
             ];
+            // load the View and apply the display ID
+            $view = Drupal\views\Views::getView($view_id);
+            $view->setDisplay($display_id);
+            $view->get_total_rows = TRUE;
+            // get the first set of results from the View
+            $members = $view->executeDisplay($display_id, $data['arguments']);
+            // after we executed the View, we'll know how many items were returned
+            // use this to page through all results
+            $data['limit'] = $view->getItemsPerPage();
+            $total = $view->total_rows;
+            $offset = 0;
+            while ($total > 0) {
+              $data['offset'] = $offset;
+              // queue the information we found to be processed by the queue
+              $queue->createItem($data);
+              if ($data['limit'] <= 0) {
+                break;
+              }
+              $total -= $data['limit'];
+              $offset += $data['limit'];
+            }
           }
         }
       }
@@ -176,21 +198,43 @@ function rest_oai_pmh_cache_views($view_displays = FALSE, $queue_name = 'rest_oa
     // if no contextual filter was found for this View
     // use all the View results as a single set for OAI-PMH
     // and make the set's name/id based off the View
-    if (empty($data['sets'])) {
+    if (!$has_sets) {
       $view_storage = \Drupal::entityTypeManager()->getStorage('view');
       $view = $view_storage->load($view_id);
       $display = $view->get('display');
-      $data['sets'][] = [
+      $data = [
+
+        'view_id' => $view_id,
+        'display_id' => $display_id,
         'arguments' => [],
         'set_entity_type' => 'view',
         'set_id' => $view_display,
         'set_label' => $display[$display_id]['display_title'],
         'view_display' => $view_display,
       ];
-    }
 
-    // queue the information we found to be processed by the queue
-    $queue->createItem($data);
+      // load the View and apply the display ID
+      $view = Drupal\views\Views::getView($view_id);
+      $view->setDisplay($display_id);
+      $view->get_total_rows = TRUE;
+      // get the first set of results from the View
+      $members = $view->executeDisplay($display_id);
+      // after we executed the View, we'll know how many items were returned
+      // use this to page through all results
+      $data['limit'] =  $view->getItemsPerPage();
+      $total = $view->total_rows;
+      $offset = 0;
+      while ($total > 0) {
+        $data['offset'] = $offset;
+        // queue the information we found to be processed by the queue
+        $queue->createItem($data);
+        if ($data['limit'] <= 0) {
+          break;
+        }
+        $total -= $data['limit'];
+        $offset += $data['limit'];
+      }
+    }
   }
 }
 
