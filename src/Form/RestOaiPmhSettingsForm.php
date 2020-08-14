@@ -77,13 +77,13 @@ class RestOaiPmhSettingsForm extends ConfigFormBase {
    */
   public static function create(ContainerInterface $container) {
     return new static(
-      $container->get('config.factory'),
-      $container->get('entity_type.manager'),
-      $container->get('module_handler'),
-      $container->get('path.validator'),
-      $container->get('cache.discovery'),
-      $container->get('router.builder')
-    );
+          $container->get('config.factory'),
+          $container->get('entity_type.manager'),
+          $container->get('module_handler'),
+          $container->get('path.validator'),
+          $container->get('cache.discovery'),
+          $container->get('router.builder')
+      );
   }
 
   /**
@@ -113,8 +113,10 @@ class RestOaiPmhSettingsForm extends ConfigFormBase {
       '#open' => TRUE,
       '#title' => $this->t('What to expose to OAI-PMH'),
       '#attributes' => ['style' => 'max-width: 750px'],
-      '#description' => $this->t('<p>Select which Views with an Entity Reference display will be exposed to OAI-PMH.</p>
-        <p>Each View will be represented as a set in the OAI-PMH endpoint, except for those Views that contain a contextual filter to an entity reference. If the View has one of these contextual filters, the possible values in the referenced field will be used as the sets.</p>'),
+      '#description' => $this->t(
+          '<p>Select which Views with an Entity Reference display will be exposed to OAI-PMH.</p>
+        <p>Each View will be represented as a set in the OAI-PMH endpoint, except for those Views that contain a contextual filter to an entity reference. If the View has one of these contextual filters, the possible values in the referenced field will be used as the sets.</p>'
+      ),
     ];
 
     $displays = Views::getApplicableViews('entity_reference_display');
@@ -162,14 +164,14 @@ class RestOaiPmhSettingsForm extends ConfigFormBase {
         '#options' => $options,
         '#title' => $metadata_prefix,
         '#default_value' => empty($mapping_config[$metadata_prefix]) ? '' : $mapping_config[$metadata_prefix],
-      ];      
+      ];
     }
 
     $name = $config->get('repository_name');
     $form['repository_name'] = [
       '#type' => 'textfield',
       '#title' => $this->t('Repository Name'),
-      '#default_value' => $name ? :  $this->config('system.site')->get('name'),
+      '#default_value' => $name ? : $this->config('system.site')->get('name'),
       '#required' => TRUE,
     ];
 
@@ -197,6 +199,25 @@ class RestOaiPmhSettingsForm extends ConfigFormBase {
       '#required' => TRUE,
     ];
 
+    $cache_technique = $config->get('cache_technique');
+    $form['cache_technique'] = [
+      '#title' => $this->t('Repository Caching Technique'),
+      '#description' => $this->t(
+          '<p>Select which caching technique should be used to ensure your repository is up to date with changes in your repo.</p>
+        <ul>
+          <li>Liberal Cache Clearing Strategy: will clear cache whenever an entity that could possibly effect the OAI repository is added/edited/updated</li>
+          <li>Conservative Cache Clearing Strategy: will only remove entities from the OAI repository when they are deleted from Drupal. Will require more manual rebuilds or cron configuration.</li>
+        </ul>'
+      ),
+      '#type' => 'select',
+      '#options' => [],
+      '#required' => TRUE,
+      '#default_value' => $cache_technique ? : 'liberal_cache',
+    ];
+    foreach (\Drupal::service('plugin.manager.oai_cache')->getDefinitions() as $plugin_id => $plugin_definition) {
+      $form['cache_technique']['#options'][$plugin_id] = $plugin_definition['label']->render();
+    }
+
     return parent::buildForm($form, $form_state);
   }
 
@@ -216,8 +237,9 @@ class RestOaiPmhSettingsForm extends ConfigFormBase {
 
     // If the admin is changing the path
     // make sure the path they're changing it to doesn't already exist.
-    if ($submitted_path !== OaiPmh::OAI_DEFAULT_PATH &&
-      $this->pathValidator->getUrlIfValidWithoutAccessCheck($submitted_path)) {
+    if ($submitted_path !== OaiPmh::OAI_DEFAULT_PATH
+          && $this->pathValidator->getUrlIfValidWithoutAccessCheck($submitted_path)
+      ) {
       $form_state->setErrorByName('repository_path', $this->t('The path you attempted to change to already exists.'));
     }
     // If the admin changed the OAI endpoint path, invalidate cache and rebuild routes.
@@ -261,11 +283,15 @@ class RestOaiPmhSettingsForm extends ConfigFormBase {
       ->set('repository_name', $form_state->getValue('repository_name'))
       ->set('repository_email', $form_state->getValue('repository_email'))
       ->set('expiration', $form_state->getValue('expiration'))
+      ->set('cache_technique', $form_state->getValue('cache_technique'))
       ->save();
 
     rest_oai_pmh_cache_views($rebuild_views);
   }
 
+  /**
+   *
+   */
   protected function updateRestEndpointPath($path) {
     $this->config('rest_oai_pmh.settings')
       ->set('repository_path', $path)

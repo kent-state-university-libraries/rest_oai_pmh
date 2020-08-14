@@ -8,7 +8,11 @@ services:
     class: '\Drupal\rest_oai_pmh\EventSubscriber\OaiDcMimeType'
     tags:
       - { name: 'event_subscriber' }
-      
+
   plugin.manager.oai_metadata_map:
     class: Drupal\rest_oai_pmh\Plugin\OaiMetadataMapManager
+    parent: default_plugin_manager
+
+  plugin.manager.oai_cache:
+    class: Drupal\rest_oai_pmh\Plugin\OaiCacheManager
     parent: default_plugin_manager

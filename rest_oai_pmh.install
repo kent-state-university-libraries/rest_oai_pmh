@@ -182,3 +182,13 @@ function rest_oai_pmh_update_8004() {
   ]);
   $config->save();
 }
+
+
+/**
+ * Update storage config for new cache plugin storage
+ */
+function rest_oai_pmh_update_8005() {
+  $config = \Drupal::service('config.factory')->getEditable('rest_oai_pmh.settings');
+  $config->set('cache_technique', 'liberal_cache');
+  $config->save();
+}

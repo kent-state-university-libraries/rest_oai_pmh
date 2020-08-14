@@ -64,83 +64,23 @@ function rest_oai_pmh_entity_update(EntityInterface $entity) {
 }
 
 /**
- * Helper function. Act when an entity is added/updated in Drupal
- */
-function rest_oai_pmh_entity_alter($entity) {
-  $entity_type = $entity->getEntityTypeId();
-  // if a View is being added/updated
-  if ($entity_type === 'view') {
-
-    // check if the View has a display that's exposed in OAI
-    $entity_id = $entity->id();
-    $d_args = [':view_id' => $entity_id . '%'];
-    $config = \Drupal::service('config.factory')->getEditable('rest_oai_pmh.settings');
-    $oai_view_displays = $config->get('view_displays') ? : [];
-    $in_config = FALSE;
-    // go through
-    foreach ($oai_view_displays as $view_display) {
-      list($view_id, $display_id) = explode(':', $view_display);
-      if ($view_id == $entity_id) {
-        $in_config = TRUE;
-        break;
-      }
-    }
-
-    // if there is a display in OAI
-    if ($in_config) {
-      $displays = [];
-      foreach ($entity->get('display') as $display_id => $display) {
-        $displays[] = $entity_id . ':' . $display_id;
-      }
-      $deleted_displays = array_diff($oai_view_displays, $displays);
-
-      if (count($deleted_displays)) {
-        foreach ($deleted_displays as $deleted_display) {
-          rest_oai_pmh_remove_sets_by_display_id($deleted_display);
-          unset($oai_view_displays[$deleted_display]);
-        }
-        $config->set('view_displays', $oai_view_displays)->save();
-      }
-      rest_oai_pmh_cache_views();
-    }
-  }
-  else {
-    // @todo see if we can act on cache invalidations for Views we expose
-    // instead of just rebuilding everything when an entity we expose to OAI is created/updated
-    $d_args = [':entity_type' => $entity_type];
-    $rebuild = \Drupal::database()->query("SELECT * FROM {rest_oai_pmh_record} r, {rest_oai_pmh_set} s
-      WHERE s.entity_type = :entity_type OR r.entity_type = :entity_type
-      LIMIT 1", $d_args)->fetchField();
-    if ($rebuild) {
-      rest_oai_pmh_cache_views();
-    }
-  }
-}
-
-/**
  * Implements hook_entity_delete().
  */
 function rest_oai_pmh_entity_delete(EntityInterface $entity) {
-  $entity_type = $entity->getEntityTypeId();
-  $entity_id = $entity->id();
+  rest_oai_pmh_entity_alter($entity, 'delete');
+}
 
-  // if a View is being deleted
-  if ($entity_type === 'view') {
-    // check if there are any sets in OAI with a display from this View
-    $d_args = [':view_id' => $entity_id . '%'];
-    $view_displays = \Drupal::database()->query("SELECT DISTINCT(view_display) FROM {rest_oai_pmh_set} s
-      WHERE s.view_display LIKE :view_id", $d_args)->fetchCol();
-    // for any set found, delete it
-    foreach ($view_displays as $view_display) {
-      rest_oai_pmh_remove_sets_by_display_id($view_display);
-    }
-  }
-  // for any other entity, delete all sets/records for the entity
-  else {
-    rest_oai_pmh_remove_record($entity_type, $entity_id);
-    $set_id = $entity_type . ':' . $entity_id;
-    rest_oai_pmh_remove_sets_by_display_id($set_id);
-  }
+/**
+ * Helper function. Act when an entity is added/updated/deleted
+ */
+function rest_oai_pmh_entity_alter($entity, $op = '') {
+  $oai_cache_plugin_manager = \Drupal::service('plugin.manager.oai_cache');
+
+  $config = \Drupal::config('rest_oai_pmh.settings');
+  $cache_technique = $config->get('cache_technique') ? : 'liberal_cache';
+
+  $cache_plugin = $oai_cache_plugin_manager->createInstance($cache_technique);
+  $cache_plugin->clearCache($entity, $op);
 }
 
 /**
@@ -259,9 +199,10 @@ function rest_oai_pmh_cache_views($view_displays = FALSE, $queue_name = 'rest_oa
  */
 function rest_oai_pmh_remove_sets_by_display_id($view_display) {
   $disabled_sets = \Drupal::database()->query('SELECT set_id FROM {rest_oai_pmh_set}
-    WHERE view_display = :view_display', [':view_display' => $view_display])->fetchCol();
+    WHERE view_display = :view_display', [':view_display' => $view_display]);
   foreach ($disabled_sets as $disabled_set) {
-    rest_oai_pmh_remove_set($disabled_set);
+    list($entity_type, $entity_id) = explode(':', $disabled_set);
+    rest_oai_pmh_remove_record($entity_type, $entity_id);
   }
 }
 
@@ -270,14 +211,14 @@ function rest_oai_pmh_remove_sets_by_display_id($view_display) {
  * @todo queue this?
  */
 function rest_oai_pmh_remove_set($set_id) {
-  // find all records in this set
+  // find all records that belong to this set
   $args = [':set_id' => $set_id];
   $disabled_records = \Drupal::database()->query('SELECT entity_type, entity_id
     FROM {rest_oai_pmh_member}
     WHERE set_id = :set_id', $args);
 
   foreach ($disabled_records as $disabled_record) {
-    rest_oai_pmh_remove_record($disabled_record->entity_type, $disabled_record->entity_id, $disabled_set);
+    rest_oai_pmh_remove_record($disabled_record->entity_type, $disabled_record->entity_id, $set_id);
   }
 
   // finally, delete the set
@@ -288,38 +229,46 @@ function rest_oai_pmh_remove_set($set_id) {
 
 /**
  * Helper function. Delete a record from OAI
- * @todo queue this?
  */
-function rest_oai_pmh_remove_record($entity_type, $entity_id, $set_id = FALSE) {
-  if ($set_id) {
-    $args = [
-      ':set_id' => $set_id,
-      ':type' => $entity_type,
-      ':id' => $entity_id
-    ];
-    $set_id = \Drupal::database()->query('SELECT set_id FROM {rest_oai_pmh_member}
-      WHERE entity_type = :type
-        AND entity_id = :id
-        AND set_id <> :set_id', $args)->fetchField();
+function rest_oai_pmh_remove_record($entity_type, $entity_id, $remove_from_set = FALSE) {
+  $set_id = $entity_type . ':' . $entity_id;
+  rest_oai_pmh_remove_set($set_id);
+
+  // remove this record's set associations
+  $query = \Drupal::database()->delete('rest_oai_pmh_member')
+    ->condition('entity_type', $entity_type)
+    ->condition('entity_id', $entity_id);
+  if ($remove_from_set) {
+    $query->condition('set_id', $remove_from_set);
+  }
+  $query->execute();
+
+  // by default, remove the entity from OAI cache
+  $delete_entity_from_cache = TRUE;
+  // but if we're just removing the entity because it belongs to a set being removed
+  if ($remove_from_set) {
+    // first check if sets are enabled
+    $config = \Drupal::config('rest_oai_pmh.settings');
+    $support_sets = $config->get('support_sets') ? : FALSE;
+    // if sets are supported
+    if ($support_sets) {
+      // do not delete this entity from the OAI record cache if it belongs to any other sets
+      $delete_entity_from_cache = !(bool) \Drupal::database()->query('SELECT entity_id
+        FROM {rest_oai_pmh_member}
+        WHERE entity_type = :entity_type
+          AND entity_id = :entity_id', [
+            ':entity_type' => $entity_type,
+            ':entity_id' => $entity_id
+          ])->fetchField();
+    }
   }
 
-  // if the record is not in any other sets, delete the record
-  if (!$set_id) {
+  if ($delete_entity_from_cache) {
     \Drupal::database()->delete('rest_oai_pmh_record')
       ->condition('entity_type', $entity_type)
       ->condition('entity_id', $entity_id)
       ->execute();
   }
-  // remove this record's set associations
-  $query = \Drupal::database()->delete('rest_oai_pmh_member')
-    ->condition('entity_type', $entity_type)
-    ->condition('entity_id', $entity_id);
-
-  if ($set_id) {
-    $query->condition('set_id', $set_id);
-  }
-
-  $query->execute();
 }
 
 /**
