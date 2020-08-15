@@ -277,6 +277,19 @@ function rest_oai_pmh_remove_set($set_id) {
  * Helper function. Delete a record from OAI
  */
 function rest_oai_pmh_remove_record($entity_type, $entity_id, $remove_from_set = FALSE) {
+  // only attempt to remove a record if it exists as a set OR an OAI item
+  $d_args = [
+    ':entity_type' => $entity_type
+  ];
+  $exists = \Drupal::database()->query("SELECT 1
+    FROM {rest_oai_pmh_record} r, {rest_oai_pmh_set} s
+    WHERE s.entity_type = :entity_type
+      OR r.entity_type = :entity_type
+    LIMIT 1", $d_args)->fetchField();
+  if ($exists !== '1') {
+    return;
+  }
+
   $set_id = $entity_type . ':' . $entity_id;
   rest_oai_pmh_remove_set($set_id);
 
