@@ -1,5 +1,7 @@
 <?php
 
+use Drupal\views\Views;
+use Drupal\Core\Url;
 /**
  * @file
  * Contains rest_oai_pmh.module.
@@ -113,7 +115,7 @@ function rest_oai_pmh_cache_views($view_displays = FALSE, $queue_name = 'rest_oa
   foreach ($view_displays as $view_display) {
     list($view_id, $display_id) = explode(':', $view_display);
 
-    $view = \Drupal\views\Views::getView($view_id);
+    $view = Views::getView($view_id);
     $view->setDisplay($display_id);
 
     $has_sets = FALSE;
@@ -170,7 +172,7 @@ function rest_oai_pmh_cache_views($view_displays = FALSE, $queue_name = 'rest_oa
               'view_display' => $view_display
             ];
             // load the View and apply the display ID
-            $view = Drupal\views\Views::getView($view_id);
+            $view = Views::getView($view_id);
             $view->setDisplay($display_id);
             $view->get_total_rows = TRUE;
             // get the first set of results from the View
@@ -214,7 +216,7 @@ function rest_oai_pmh_cache_views($view_displays = FALSE, $queue_name = 'rest_oa
       ];
 
       // load the View and apply the display ID
-      $view = Drupal\views\Views::getView($view_id);
+      $view = Views::getView($view_id);
       $view->setDisplay($display_id);
       $view->get_total_rows = TRUE;
       // get the first set of results from the View
@@ -356,7 +358,7 @@ function rest_oai_pmh_batch_finished($success, $results, $operations) {
       ]
     ];
     $t_args = [
-      ':link' => \Drupal\Core\Url::fromRoute('rest.oai_pmh.GET', [], $url_options)->toString()
+      ':link' => Url::fromRoute('rest.oai_pmh.GET', [], $url_options)->toString()
     ];
     $messenger->addStatus(t('Successfully rebuilt your OAI-PMH entries. You can now see your records at <a href=":link">:link</a>', $t_args));
   }
@@ -365,7 +367,7 @@ function rest_oai_pmh_batch_finished($success, $results, $operations) {
       'absolute' => TRUE,
     ];
     $t_args = [
-      ':link' => \Drupal\Core\Url::fromRoute('dblog.overview', [], $url_options)->toString()
+      ':link' => Url::fromRoute('dblog.overview', [], $url_options)->toString()
     ];
     $messenger->addError(t('Could not rebuild your OAI-PMH endpoint. Please check your <a href=":link">Recent log messages</a>', $t_args));
   }

@@ -22,9 +22,6 @@ use Drupal\rest_oai_pmh\Plugin\OaiMetadataMapBase;
  */
 class DublinCoreRdf extends OaiMetadataMapBase {
 
-  /**
-   *
-   */
   public function getMetadataFormat() {
     return [
       'metadataPrefix' => 'oai_dc',
@@ -33,9 +30,6 @@ class DublinCoreRdf extends OaiMetadataMapBase {
     ];
   }
 
-  /**
-   *
-   */
   public function getMetadataWrapper() {
     return [
       'oai_dc' => [

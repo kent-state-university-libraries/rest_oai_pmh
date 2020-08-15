@@ -15,9 +15,6 @@ use Drupal\rest_oai_pmh\Plugin\OaiCacheBase;
  */
 class Liberal extends OaiCacheBase {
 
-  /**
-   *
-   */
   public function clearCache($entity, $op) {
     $entity_type = $entity->getEntityTypeId();
     $entity_id = $entity->id();
@@ -69,12 +66,10 @@ class Liberal extends OaiCacheBase {
           ':entity_id' => $entity_id,
           ':set_id' => $entity_type . ':' . $entity_id,
         ];
-        $rebuild = \Drupal::database()->query(
-              "SELECT * FROM {rest_oai_pmh_record} r, {rest_oai_pmh_set} s
-          WHERE (s.entity_type = :entity_type AND s.entity_id = :entity_id)
-            OR (r.entity_type = :entity_type AND r.set_id = :set_id)
-          LIMIT 1", $d_args
-          )->fetchField();
+        $rebuild = \Drupal::database()->query("SELECT * FROM {rest_oai_pmh_record} r, {rest_oai_pmh_set} s
+          WHERE (s.entity_type = :entity_type AND s.set_id = :entity_id)
+            OR (r.entity_type = :entity_type AND r.entity_id = :set_id)
+	 LIMIT 1", $d_args)->fetchField();
         if ($rebuild) {
           rest_oai_pmh_cache_views();
         }

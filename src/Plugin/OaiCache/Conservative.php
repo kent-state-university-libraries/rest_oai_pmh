@@ -15,9 +15,6 @@ use Drupal\rest_oai_pmh\Plugin\OaiCacheBase;
  */
 class Conservative extends OaiCacheBase {
 
-  /**
-   *
-   */
   public function clearCache($entity, $op) {
     parent::clearCache($entity, $op);
   }

@@ -208,9 +208,6 @@ class OaiPmh extends ResourceBase {
     return $response;
   }
 
-  /**
-   *
-   */
   protected function GetRecord() {
 
     $identifier = $this->currentRequest->get('identifier');
@@ -253,9 +250,6 @@ class OaiPmh extends ResourceBase {
     }
   }
 
-  /**
-   *
-   */
   protected function Identify() {
     // Query our table to see the oldest entity exposed to OAI.
     $earliest_date = \Drupal::database()->query(
@@ -284,9 +278,6 @@ class OaiPmh extends ResourceBase {
     ];
   }
 
-  /**
-   *
-   */
   protected function ListMetadataFormats() {
     // @todo support more metadata formats
     $formats = [];
@@ -297,9 +288,6 @@ class OaiPmh extends ResourceBase {
     $this->response[$this->verb]['metadataFormat'] = $formats;
   }
 
-  /**
-   *
-   */
   protected function ListIdentifiers() {
     $entities = $this->getRecordIds();
     foreach ($entities as $entity) {
@@ -310,9 +298,6 @@ class OaiPmh extends ResourceBase {
     }
   }
 
-  /**
-   *
-   */
   protected function ListRecords() {
     $entities = $this->getRecordIds();
     foreach ($entities as $entity) {
@@ -323,9 +308,6 @@ class OaiPmh extends ResourceBase {
     }
   }
 
-  /**
-   *
-   */
   protected function ListSets() {
     // Throw an error if no Views set for OAI, or sets are explicitly not supported.
     if (count($this->view_displays) == 0 || empty($this->support_sets)) {
@@ -360,9 +342,6 @@ class OaiPmh extends ResourceBase {
     $this->error = TRUE;
   }
 
-  /**
-   *
-   */
   protected function getRecordById($identifier) {
     $record = [];
     $record['header'] = $this->getHeaderById($identifier);
@@ -371,9 +350,6 @@ class OaiPmh extends ResourceBase {
     return $record;
   }
 
-  /**
-   *
-   */
   protected function getHeaderById($identifier) {
     $header = [
       'identifier' => $identifier,
@@ -396,9 +372,6 @@ class OaiPmh extends ResourceBase {
     return $header;
   }
 
-  /**
-   *
-   */
   protected function getRecordMetadata() {
     if (empty($this->metadataPrefix)) {
       $this->metadataPrefix = $this->currentRequest->get('metadataPrefix');
@@ -419,9 +392,6 @@ class OaiPmh extends ResourceBase {
     return $result;
   }
 
-  /**
-   *
-   */
   private function getRecordIds() {
     $verb = $this->response['request']['@verb'];
     $resumption_token = $this->currentRequest->get('resumptionToken');
@@ -643,9 +613,6 @@ class OaiPmh extends ResourceBase {
     $this->entity = $entity && $entity->access('view') ? $entity : FALSE;
   }
 
-  /**
-   *
-   */
   protected function checkMetadataPrefix() {
     // If no metadata prefix passed into request, throw error.
     if (empty($this->metadataPrefix)) {

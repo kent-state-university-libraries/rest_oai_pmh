@@ -9,9 +9,6 @@ use Drupal\Component\Plugin\PluginBase;
  */
 abstract class OaiCacheBase extends PluginBase implements OaiCacheInterface {
 
-  /**
-   *
-   */
   public function clearCache($entity, $op) {
     if ($op === 'delete') {
       $entity_type = $entity->getEntityTypeId();
