@@ -19,7 +19,8 @@ use Drupal\Core\Render\RenderContext;
  *   id = "oai_pmh",
  *   label = @Translation("OAI-PMH"),
  *   uri_paths = {
- *     "canonical" = "/oai/request"
+ *     "canonical" = "/oai/request",
+ *     "https://www.drupal.org/link-relations/create" = "/oai/request"
  *   }
  * )
  */
@@ -140,6 +141,19 @@ class OaiPmh extends ResourceBase {
       $container->get('request_stack')->getCurrentRequest(),
       $container->get('module_handler')
     );
+  }
+
+  /**
+   * Responds to POST requests.
+   *
+   * @return \Drupal\rest\ResourceResponse
+   *   The HTTP response object.
+   *
+   * @throws \Symfony\Component\HttpKernel\Exception\HttpException
+   *   Throws exception expected.
+   */
+  public function post() {
+    return $this->get();
   }
 
   /**

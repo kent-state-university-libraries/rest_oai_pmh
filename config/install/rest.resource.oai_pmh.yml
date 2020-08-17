@@ -10,6 +10,7 @@ granularity: resource
 configuration:
   methods:
     - GET
+    - POST
   formats:
     - oai_dc
   authentication:
