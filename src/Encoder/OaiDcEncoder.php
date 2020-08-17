@@ -25,7 +25,19 @@ class OaiDcEncoder extends XmlEncoder {
    * {@inheritdoc}
    */
   public function supportsDecoding($format) {
-    return $format == $this->format;
+    return in_array($format, [$this->format, 'form']);
+  }
+
+  /**
+   * {@inheritdoc}
+   */
+  public function decode($data, $format, array $context = []) {
+    if ($format === 'xml') {
+      return parent::decode($data, $format, $context);
+    }
+    elseif ($format === 'form') {
+      return $data;
+    }
   }
 
   /**
