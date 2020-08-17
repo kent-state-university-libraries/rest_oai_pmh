@@ -59,19 +59,28 @@ class Liberal extends OaiCacheBase {
         }
       }
       else {
-        // @todo see if we can act on cache invalidations for Views we expose
-        // instead of just rebuilding everything when an entity we expose to OAI is created/updated
+        // only rebuild cache if the entity type is exposed to OAI
         $d_args = [
-          ':entity_type' => $entity_type,
-          ':entity_id' => $entity_id,
-          ':set_id' => $entity_type . ':' . $entity_id,
+          ':entity_type' => $entity_type
         ];
-        $rebuild = \Drupal::database()->query("SELECT * FROM {rest_oai_pmh_record} r, {rest_oai_pmh_set} s
-          WHERE (s.entity_type = :entity_type AND s.set_id = :entity_id)
-            OR (r.entity_type = :entity_type AND r.entity_id = :set_id)
-	 LIMIT 1", $d_args)->fetchField();
-        if ($rebuild) {
-          rest_oai_pmh_cache_views();
+        $exists = \Drupal::database()->query("SELECT 1
+          FROM {rest_oai_pmh_record} r, {rest_oai_pmh_set} s
+          WHERE s.entity_type = :entity_type
+            OR r.entity_type = :entity_type
+          LIMIT 1", $d_args)->fetchField();
+        if ($exists === '1') {
+          $d_args = [
+            ':entity_type' => $entity_type,
+            ':entity_id' => $entity_id,
+            ':set_id' => $entity_type . ':' . $entity_id,
+          ];
+          $rebuild = \Drupal::database()->query("SELECT * FROM {rest_oai_pmh_record} r, {rest_oai_pmh_set} s
+            WHERE (s.entity_type = :entity_type AND s.set_id = :entity_id)
+              OR (r.entity_type = :entity_type AND r.entity_id = :set_id)
+  	        LIMIT 1", $d_args)->fetchField();
+          if ($rebuild) {
+            rest_oai_pmh_cache_views();
+          }
         }
       }
     }
