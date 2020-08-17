@@ -55,14 +55,14 @@ function rest_oai_pmh_metatag_tags_alter(&$definitions) {
  * Implements hook_entity_insert().
  */
 function rest_oai_pmh_entity_insert(EntityInterface $entity) {
-  rest_oai_pmh_entity_alter($entity);
+  rest_oai_pmh_entity_alter($entity, 'insert');
 }
 
 /**
  * Implements hook_entity_update().
  */
 function rest_oai_pmh_entity_update(EntityInterface $entity) {
-  rest_oai_pmh_entity_alter($entity);
+  rest_oai_pmh_entity_alter($entity, 'update');
 }
 
 /**
