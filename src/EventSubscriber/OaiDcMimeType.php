@@ -3,7 +3,6 @@
 namespace Drupal\rest_oai_pmh\EventSubscriber;
 
 use Symfony\Component\EventDispatcher\EventSubscriberInterface;
-use Symfony\Component\HttpKernel\Event\RequestEvent;
 use Symfony\Component\HttpKernel\KernelEvents;
 
 /**
@@ -14,10 +13,10 @@ class OaiDcMimeType implements EventSubscriberInterface {
   /**
    * Register content type formats on the request object.
    *
-   * @param \Symfony\Component\HttpKernel\Event\GetResponseEvent $event
+   * @param \Symfony\Component\HttpKernel\Event\RequestEvent $event
    *   The Event to process.
    */
-  public function onKernelRequest(RequestEvent $event) {
+  public function onKernelRequest($event) {
     $event->getRequest()->setFormat('oai_dc', ['text/xml']);
   }
 
