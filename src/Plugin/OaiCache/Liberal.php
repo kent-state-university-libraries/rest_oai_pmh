@@ -60,15 +60,7 @@ class Liberal extends OaiCacheBase {
       }
       else {
         // only rebuild cache if the entity type is exposed to OAI
-        $d_args = [
-          ':entity_type' => $entity_type
-        ];
-        $exists = \Drupal::database()->query("SELECT 1
-          FROM {rest_oai_pmh_record} r, {rest_oai_pmh_set} s
-          WHERE s.entity_type = :entity_type
-            OR r.entity_type = :entity_type
-          LIMIT 1", $d_args)->fetchField();
-        if ($exists === '1') {
+        if (rest_oai_pmh_is_valid_entity_type($entity_type)) {
           $d_args = [
             ':entity_type' => $entity_type,
             ':entity_id' => $entity_id,

@@ -34,7 +34,7 @@ function rest_oai_pmh_rest_resource_alter(&$definitions) {
   // if the repository admin set a path, override the default URI
   $path = \Drupal::config('rest_oai_pmh.settings')->get('repository_path');
   if ($path) {
-  	$definitions['oai_pmh']['uri_paths']['canonical'] = $path;
+    $definitions['oai_pmh']['uri_paths']['canonical'] = $path;
     $definitions['oai_pmh']['uri_paths']['https://www.drupal.org/link-relations/create'] = $path;
   }
 }
@@ -279,15 +279,7 @@ function rest_oai_pmh_remove_set($set_id) {
  */
 function rest_oai_pmh_remove_record($entity_type, $entity_id, $remove_from_set = FALSE) {
   // only attempt to remove a record if it exists as a set OR an OAI item
-  $d_args = [
-    ':entity_type' => $entity_type
-  ];
-  $exists = \Drupal::database()->query("SELECT 1
-    FROM {rest_oai_pmh_record} r, {rest_oai_pmh_set} s
-    WHERE s.entity_type = :entity_type
-      OR r.entity_type = :entity_type
-    LIMIT 1", $d_args)->fetchField();
-  if ($exists !== '1') {
+  if (!rest_oai_pmh_is_valid_entity_type($entity_type)) {
     return;
   }
 
@@ -385,4 +377,17 @@ function rest_oai_pmh_batch_finished($success, $results, $operations) {
     ];
     $messenger->addError(t('Could not rebuild your OAI-PMH endpoint. Please check your <a href=":link">Recent log messages</a>', $t_args));
   }
+}
+
+function rest_oai_pmh_is_valid_entity_type($entity_type) {
+  $d_args = [
+    ':entity_type' => $entity_type
+  ];
+  $exists = \Drupal::database()->query("SELECT 1
+    FROM {rest_oai_pmh_record} r, {rest_oai_pmh_set} s
+    WHERE s.entity_type = :entity_type
+      OR r.entity_type = :entity_type
+    LIMIT 1", $d_args)->fetchField();
+
+  return $exists === '1';
 }
