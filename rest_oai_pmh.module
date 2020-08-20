@@ -35,6 +35,7 @@ function rest_oai_pmh_rest_resource_alter(&$definitions) {
   $path = \Drupal::config('rest_oai_pmh.settings')->get('repository_path');
   if ($path) {
   	$definitions['oai_pmh']['uri_paths']['canonical'] = $path;
+    $definitions['oai_pmh']['uri_paths']['https://www.drupal.org/link-relations/create'] = $path;
   }
 }
 
