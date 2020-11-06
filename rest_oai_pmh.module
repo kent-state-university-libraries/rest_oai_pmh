@@ -115,7 +115,6 @@ function rest_oai_pmh_cache_views($view_displays = FALSE, $queue_name = 'rest_oa
 
   foreach ($view_displays as $view_display) {
     list($view_id, $display_id) = explode(':', $view_display);
-
     $view = Views::getView($view_id);
     $view->setDisplay($display_id);
 
@@ -124,27 +123,41 @@ function rest_oai_pmh_cache_views($view_displays = FALSE, $queue_name = 'rest_oa
     // go through all the contextual filters for this View display
     foreach ($view->display_handler->getHandlers('argument') as $contextual_filter) {
       $definition = $contextual_filter->definition;
+      $set_entity_type = FALSE;
 
-      // look at the definition and see if it looks like an entity reference field
+      // look at the contextual filter definition
+      // and see if it looks like an entity reference field
       $entity_type = empty($definition['entity_type']) ? FALSE : $definition['entity_type'];
       $table = $definition['table'];
       $field = $definition['field_name'];
       $column = $definition['field'];
 
-      // if the contextual filter is of an entity reference field
+      // if we know the entity type of the view is querying,
+      // and the field is referencing another entity
+      // load the referenced entity's field storage
+      // to find what type of entity reference is for
       if ($entity_type && $column === $field . '_target_id') {
+        $field_storage = \Drupal::service('entity_field.manager')
+          ->getFieldStorageDefinitions($entity_type);
+        if (isset($field_storage[$field])) {
+          $set_entity_type = $field_storage[$field]->getSetting('target_type');
+        }
+      }
+
+      // if the contextual filter is of an entity reference field
+      if ($set_entity_type) {
         // see what sort of entity is exposed
         // and see what table it's stored in (e.g. $entity = 'node' if $definition['entity_type'] === 'node')
-        $entity_storage = \Drupal::entityTypeManager()->getStorage($definition['entity_type']);
-        $entity_table = $entity_storage->getBaseTable();
+        $set_entity_storage = \Drupal::entityTypeManager()->getStorage($set_entity_type);
+        $set_entity_table = $set_entity_storage->getBaseTable();
 
         // get the table where the field data for the entity reference field is stored
         // e.g. if the field name is "field_member" and entity_type is "node"
         // $field_table = 'node__field_member';
-        $field_table = $definition['entity_type'] . '__' . $field;
+        $field_table = $entity_type . '__' . $field;
 
         // get the name of the database column that stores the entity's key property
-        $id = $entity_storage->getEntityType()->getKey('id');
+        $id = $set_entity_storage->getEntityType()->getKey('id');
         // this is what we'll perform our JOIN on
         // $column is the field that the contextual reference queries on
         // so for field_member $column = 'field_member_target_id';
@@ -152,7 +165,7 @@ function rest_oai_pmh_cache_views($view_displays = FALSE, $queue_name = 'rest_oa
 
         // find all entities that had at least one record that references the entity
         // in the field defined on the contextual filter
-        $query = \Drupal::database()->select($entity_table, 'entity');
+        $query = \Drupal::database()->select($set_entity_table, 'entity');
         $query->innerJoin($field_table, 'f', $condition);
         $query->addField('entity', $id);
         $query->groupBy($id);
@@ -160,15 +173,15 @@ function rest_oai_pmh_cache_views($view_displays = FALSE, $queue_name = 'rest_oa
         // make each entity found that's referenced a set in OAI
         $ids = $query->execute()->fetchCol();
         foreach ($ids as $id) {
-          $entity = $entity_storage->load($id);
+          $entity = $set_entity_storage->load($id);
           if ($entity) {
             $has_sets = TRUE;
             $data = [
               'view_id' => $view_id,
               'display_id' => $display_id,
               'arguments' => [$entity->id()],
-              'set_entity_type' => $definition['entity_type'],
-              'set_id' => $definition['entity_type'] . ':' . $entity->id(),
+              'set_entity_type' => $set_entity_type,
+              'set_id' => $set_entity_type . ':' . $entity->id(),
               'set_label' => $entity->label(),
               'view_display' => $view_display
             ];
@@ -176,6 +189,7 @@ function rest_oai_pmh_cache_views($view_displays = FALSE, $queue_name = 'rest_oa
             $view = Views::getView($view_id);
             $view->setDisplay($display_id);
             $view->get_total_rows = TRUE;
+            $view->getDisplay()->setOption('entity_reference_options', ['limit' => $view->getItemsPerPage()]);
             // get the first set of results from the View
             $members = $view->executeDisplay($display_id, $data['arguments']);
             // after we executed the View, we'll know how many items were returned
@@ -206,7 +220,6 @@ function rest_oai_pmh_cache_views($view_displays = FALSE, $queue_name = 'rest_oa
       $view = $view_storage->load($view_id);
       $display = $view->get('display');
       $data = [
-
         'view_id' => $view_id,
         'display_id' => $display_id,
         'arguments' => [],
@@ -219,6 +232,7 @@ function rest_oai_pmh_cache_views($view_displays = FALSE, $queue_name = 'rest_oa
       // load the View and apply the display ID
       $view = Views::getView($view_id);
       $view->setDisplay($display_id);
+      $view->getDisplay()->setOption('entity_reference_options', ['limit' => $view->getItemsPerPage()]);
       $view->get_total_rows = TRUE;
       // get the first set of results from the View
       $members = $view->executeDisplay($display_id);
@@ -246,7 +260,7 @@ function rest_oai_pmh_cache_views($view_displays = FALSE, $queue_name = 'rest_oa
  */
 function rest_oai_pmh_remove_sets_by_display_id($view_display) {
   $disabled_sets = \Drupal::database()->query('SELECT set_id FROM {rest_oai_pmh_set}
-    WHERE view_display = :view_display', [':view_display' => $view_display]);
+    WHERE view_display = :view_display', [':view_display' => $view_display])->fetchCol();
   foreach ($disabled_sets as $disabled_set) {
     list($entity_type, $entity_id) = explode(':', $disabled_set);
     rest_oai_pmh_remove_record($entity_type, $entity_id);
