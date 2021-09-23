@@ -218,6 +218,7 @@ class OaiPmh extends ResourceBase {
           ],
         ]
     );
+    \Drupal::service('page_cache_kill_switch')->trigger();
 
     return $response;
   }
