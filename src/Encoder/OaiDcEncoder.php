@@ -68,12 +68,16 @@ class OaiDcEncoder extends XmlEncoder {
      * Of course this is not ideal.
      */
     $search = [
+      '<oai_dc ',
+      '</oai_dc>',
       '<metadata-xml><![CDATA[',
       ']]></metadata-xml>',
       '<oai-dc-string>',
       '</oai-dc-string>',
     ];
     $replace = [
+      '<oai_dc:dc ',
+      '</oai_dc:dc>',
       '',
       '',
       '',

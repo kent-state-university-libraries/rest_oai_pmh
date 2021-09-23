@@ -172,7 +172,6 @@ class OaiPmh extends ResourceBase {
       '@xmlns' => 'http://www.openarchives.org/OAI/2.0/',
       '@xmlns:xsi' => 'http://www.w3.org/2001/XMLSchema-instance',
       '@xsi:schemaLocation' => 'http://www.openarchives.org/OAI/2.0/ http://www.openarchives.org/OAI/2.0/OAI-PMH.xsd',
-      '@name' => 'OAI-PMH',
       'responseDate' => gmdate(self::OAI_DATE_FORMAT, \Drupal::time()->getRequestTime()),
       'request' => [
         'oai-dc-string' => $base_oai_url,
@@ -206,6 +205,14 @@ class OaiPmh extends ResourceBase {
     // If not a valid verb, print the error message.
     else {
       $this->setError('badVerb', 'Value of the verb argument is not a legal OAI-PMH verb, the verb argument is missing, or the verb argument is repeated.');
+    }
+
+    // resumptionToken needs to be at the bottom of the request
+    // so if it exists, go take it out of the array and add it back to ensure it's the last element in the array
+    if (count($this->response[$this->verb]['resumptionToken'])) {
+      $resumption_token = $this->response[$this->verb]['resumptionToken'];
+      unset($this->response[$this->verb]['resumptionToken']);
+      $this->response[$this->verb]['resumptionToken'] = $resumption_token;
     }
 
     $response = new ResourceResponse($this->response, 200);
@@ -334,11 +341,9 @@ class OaiPmh extends ResourceBase {
 
     $sets = \Drupal::database()->query('SELECT set_id, label FROM {rest_oai_pmh_set}');
     foreach ($sets as $set) {
-      $this->response[$this->verb][] = [
-        'set' => [
+      $this->response[$this->verb]['set'][] = [
           'setSpec' => $set->set_id,
           'setName' => $set->label,
-        ],
       ];
     }
   }
