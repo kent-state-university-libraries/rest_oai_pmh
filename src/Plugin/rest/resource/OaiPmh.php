@@ -318,6 +318,10 @@ class OaiPmh extends ResourceBase {
       $this->loadEntity($identifier, TRUE);
       $this->response[$this->verb]['header'][] = $this->getHeaderById($identifier);
     }
+    if (empty($this->response[$this->verb]['header'])) {
+      $this->setError('noRecordsMatch', 'No records found.');
+      unset($this->response[$this->verb]);
+    }
   }
 
   protected function ListRecords() {
@@ -327,6 +331,10 @@ class OaiPmh extends ResourceBase {
       $identifier = $this->buildIdentifier($entity);
       $this->loadEntity($identifier, TRUE);
       $this->response[$this->verb]['record'][] = $this->getRecordById($identifier);
+    }
+    if (empty($this->response[$this->verb]['record'])) {
+      $this->setError('noRecordsMatch', 'No records found.');
+      unset($this->response[$this->verb]);
     }
   }
 
