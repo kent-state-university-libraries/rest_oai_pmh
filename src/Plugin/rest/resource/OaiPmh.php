@@ -209,7 +209,7 @@ class OaiPmh extends ResourceBase {
 
     // resumptionToken needs to be at the bottom of the request
     // so if it exists, go take it out of the array and add it back to ensure it's the last element in the array
-    if (count($this->response[$this->verb]['resumptionToken'])) {
+    if (!empty($this->response[$this->verb]['resumptionToken']) && count($this->response[$this->verb]['resumptionToken'])) {
       $resumption_token = $this->response[$this->verb]['resumptionToken'];
       unset($this->response[$this->verb]['resumptionToken']);
       $this->response[$this->verb]['resumptionToken'] = $resumption_token;
